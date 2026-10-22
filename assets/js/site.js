@@ -84,7 +84,7 @@ function heroSection(s, c) {
     <div class="wrap hero-grid">
       <div class="hero-copy">
         ${avail ? `<p class="badge rv"><span class="pulse"></span>${esc(p.availability.text)}</p>` : ''}
-        <h1 class="hero-name rv" style="--d:1"><span class="grad-text">${esc(p.name)}</span></h1>
+        <h1 class="hero-name rv" style="--d:1"><span class="grad-text">${String(p.name || '').split(/\s+/).filter(Boolean).map((w) => `<span class="w">${esc(w)}</span>`).join(' ')}</span></h1>
         <p class="hero-role rv" style="--d:2">${esc(p.role)}</p>
         ${tags.length ? `<p class="hero-tag rv" style="--d:3"><span class="caret">&gt;</span> <span class="rotator" data-tags="${esc(JSON.stringify(tags))}">${esc(tags[0])}</span><span class="cursor-bar"></span></p>` : ''}
         <div class="hero-cta rv" style="--d:4">
@@ -118,6 +118,16 @@ function reel(p) {
       <span class="vf tl"></span><span class="vf tr"></span><span class="vf bl"></span><span class="vf br"></span>
     </div>
     <div class="reel-meta"><span><i class="rec"></i>REC</span><span class="reel-cap">${esc(p.showreelCaption || 'Showreel')}</span><span class="tc" id="timecode">00:00:00:00</span></div>`;
+}
+
+// Words never break; if the longest one is wider than the column, shrink the whole name to fit.
+function fitName() {
+  const h = $('.hero-name');
+  if (!h) return;
+  h.style.fontSize = '';
+  const avail = h.clientWidth;
+  const widest = Math.max(0, ...$$('.w', h).map((w) => w.getBoundingClientRect().width));
+  if (avail && widest > avail) h.style.fontSize = `${parseFloat(getComputedStyle(h).fontSize) * (avail / widest) * 0.97}px`;
 }
 
 function autoplayOK() {
@@ -618,6 +628,12 @@ function wireGlobal() {
   addEventListener('scroll', onScroll, { passive: true });
   onScroll();
 
+  // Refit the name when the window changes size or the display font finishes loading.
+  let fitRaf = 0;
+  addEventListener('resize', () => { cancelAnimationFrame(fitRaf); fitRaf = requestAnimationFrame(fitName); });
+  document.fonts?.addEventListener?.('loadingdone', fitName);
+  document.fonts?.ready.then(fitName);
+
   if (matchMedia('(pointer: fine)').matches && !REDUCED) {
     const glow = $('.cursor-glow');
     let raf = 0;
@@ -719,6 +735,7 @@ function render(c) {
   watchGrid();
   renderExperience();
   renderFooter(c);
+  fitName();
   reveal(app);
   observeSections();
   startEffects();

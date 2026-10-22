@@ -408,8 +408,10 @@ img.player.contain, video.player { object-fit: contain; }
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--a) 70%, transparent); }
   100% { box-shadow: 0 0 0 12px transparent; }
 }
-.hero-name { margin: 22px 0 14px; font: var(--dw) clamp(2.8rem, 8.6vw, 6.4rem)/.95 var(--font-display); letter-spacing: -.035em; overflow-wrap: anywhere; }
-.hero-name .grad-text { padding-bottom: .06em; display: inline-block; }
+.hero-name { margin: 22px 0 14px; font: var(--dw) clamp(2.8rem, 8.6vw, 6.4rem)/.95 var(--font-display); letter-spacing: -.035em; }
+/* padding gives descenders (g, y, p) room inside the gradient fill; the negative margin keeps spacing unchanged */
+.hero-name .grad-text { display: inline-block; padding: .04em .04em .22em 0; margin-bottom: -.16em; }
+.hero-name .w { white-space: nowrap; }
 .hero-role { margin: 0 0 10px; font-size: clamp(1.08rem, 2.1vw, 1.38rem); font-weight: 500; }
 .hero-tag { display: flex; align-items: baseline; gap: 8px; margin: 0; min-height: 1.6em; font: 400 .95rem var(--font-mono); color: var(--muted); }
 .hero-tag .cursor-bar { flex: none; align-self: center; margin-left: -4px; }
@@ -666,7 +668,7 @@ img.player.contain, video.player { object-fit: contain; }
   box-shadow: 0 0 calc(70px * var(--glow)) -24px color-mix(in srgb, var(--a) 55%, transparent);
 }
 .contact-box .eyebrow { justify-content: center; }
-.contact-box h2 { font-size: clamp(2.2rem, 7vw, 4.6rem); margin-bottom: 16px; }
+.contact-box h2 { font-size: clamp(2.2rem, 7vw, 4.6rem); margin-bottom: 6px; padding-bottom: .12em; }
 .contact-box .sec-intro { margin: 0 auto 30px; }
 .contact-box .btn-lg { max-width: 100%; overflow-wrap: anywhere; }
 .social-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
