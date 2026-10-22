@@ -148,7 +148,7 @@ Tips:
 | "This address can't sign in yet" | Add your site's domain in Firebase › Authentication › Settings › **Authorized domains**. |
 | "Almost there" screen won't go away | The rules weren't published, or the email in them doesn't match the account you signed in with. Copy them again from that screen and **Publish**. |
 | "Not allowed to save" | Same as above: re-publish the rules. |
-| Upload fails | Check the cloud name and preset in Settings, and that the preset is **Unsigned**. Check the file size limit. |
+| Upload fails / "Unknown API key" | That message means the **cloud name** is wrong. Use the Cloud name from your Cloudinary dashboard, not the API key. Also check the preset name and that it's **Unsigned**, then press **Test uploads** in Settings. |
 | Résumé PDF won't open | Cloudinary › Settings › Security › **Allow delivery of PDF and ZIP files**. Or use a Google Drive link instead. |
 | Changes don't show on the site | Reload the page. The site shows a cached copy instantly, then loads the latest. |
 | Dashboard says 0 | Visits from `localhost` and from your own devices are skipped on purpose. Try a friend's phone. |

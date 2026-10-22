@@ -4,6 +4,7 @@ import { parse, thumbUrl } from '../media.js';
 import { FONTS } from '../theme.js';
 import { PLATFORMS } from '../platforms.js';
 import { card, note, text, area, lines, toggle, select, month, color, range, tags, media, mediaList, colorPair, list, icon, changed, toast } from './forms.js';
+import { checkCloudName, uploadFile, uploadsReady } from './upload.js';
 
 let rulesText;
 export const loadRules = () => (rulesText ||= fetch(new URL('../../../firestore.rules', import.meta.url)).then((r) => r.text()).then((t) => t.replace(/^(\/\/.*\n)+/, '')));
@@ -360,12 +361,41 @@ export function settingsTab(ctx) {
     e.target.value = '';
   } });
 
+  const cloudHint = h('p', { class: 'note warn' });
+  const showHint = () => { cloudHint.textContent = checkCloudName(priv.cloudName); cloudHint.hidden = !cloudHint.textContent; };
+  showHint();
+  const testResult = h('span', { class: 'mf-status' });
+  const testBtn = h('button', { type: 'button', class: 'btn sm', onclick: async () => {
+    if (!uploadsReady()) { testResult.className = 'mf-status bad'; testResult.textContent = 'Fill in both fields first.'; return; }
+    testBtn.disabled = true;
+    testResult.className = 'mf-status';
+    testResult.textContent = 'Testing…';
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 8;
+      const g = c.getContext('2d');
+      g.fillStyle = '#00e5ff';
+      g.fillRect(0, 0, 8, 8);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+      await uploadFile(new File([blob], 'upload-test.png', { type: 'image/png' }));
+      testResult.className = 'mf-status ok';
+      testResult.textContent = '✓ Uploads work. Press Save & publish to keep these settings.';
+    } catch (err) {
+      testResult.className = 'mf-status bad';
+      testResult.textContent = err.message;
+    } finally {
+      testBtn.disabled = false;
+    }
+  } }, icon('fa-vial'), 'Test uploads');
+
   return h('div', { class: 'stack' },
     card('Uploads (Cloudinary)',
-      note(`Free Cloudinary account → <b>Settings › Upload › Upload presets › Add</b>, set <b>Signing mode: Unsigned</b> and folder <code>portfolio</code>. Paste the details below and press <b>Save</b>. Limits: images and PDFs 10 MB, videos 100 MB.`),
+      note(`Free Cloudinary account → <b>Settings › Upload › Upload presets › Add</b>, set <b>Signing mode: Unsigned</b> and folder <code>portfolio</code>. Paste the details below, press <b>Test uploads</b>, then <b>Save</b>. Limits: images and PDFs 10 MB, videos 100 MB.`),
       h('div', { class: 'grid' },
-        text(priv, 'cloudName', { label: 'Cloud name', placeholder: 'e.g. dxyz123ab' }),
-        text(priv, 'uploadPreset', { label: 'Upload preset name', placeholder: 'e.g. portfolio_unsigned' }))),
+        text(priv, 'cloudName', { label: 'Cloud name', placeholder: 'e.g. dxyz123ab', help: 'On your Cloudinary dashboard, next to “Cloud name”. Not the API key.', onInput: showHint }),
+        text(priv, 'uploadPreset', { label: 'Upload preset name', placeholder: 'e.g. portfolio_unsigned', help: 'Exact name from Settings › Upload › Upload presets' })),
+      cloudHint,
+      h('div', { class: 'mf-actions' }, testBtn, testResult)),
     card('Search & sharing',
       h('div', { class: 'grid' },
         text(d.seo, 'title', { label: 'Browser tab title', cls: 'f-wide' }),

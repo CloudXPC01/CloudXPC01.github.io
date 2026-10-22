@@ -225,6 +225,7 @@ h1, h2, h3, h4 { font-family: var(--font-display); }
 .f-help { font-size: .78rem; color: var(--faint); }
 .note { margin: 0; font-size: .86rem; color: var(--muted); }
 .note b { color: var(--text); }
+.note.warn { color: #ffb86b; }
 .callout, .callout-note, .callout-bad { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 16px; border-radius: 12px; font-size: .88rem; }
 .callout { background: color-mix(in srgb, var(--a) 10%, transparent); border: 1px solid color-mix(in srgb, var(--a) 30%, transparent); }
 .callout > span { flex: 1; min-width: 180px; }
