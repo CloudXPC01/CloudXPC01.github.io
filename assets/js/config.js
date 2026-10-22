@@ -1,15 +1,11 @@
-// Paste your Firebase web app config here (Firebase console > Project settings > Your apps).
-// While this is null the site runs in demo mode: it shows the starter content and the
-// admin saves changes only in your own browser.
-export const firebaseConfig = null;
-
-/* Example:
+// Firebase web app config (Firebase console > Project settings > Your apps).
+// This is meant to be public; the database rules (firestore.rules) are what protect your data.
+// Set it back to null to run the site in demo mode.
 export const firebaseConfig = {
-  apiKey: "AIza...",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234567890:web:abc123"
+  apiKey: 'AIzaSyAoCk6qbTgCQs5EdMZH9U11_c9hjkIaWho',
+  authDomain: 'shreyansh-portfolio-c545e.firebaseapp.com',
+  projectId: 'shreyansh-portfolio-c545e',
+  storageBucket: 'shreyansh-portfolio-c545e.firebasestorage.app',
+  messagingSenderId: '272377043701',
+  appId: '1:272377043701:web:0f6ed6850e44b8695143bc',
 };
-*/
