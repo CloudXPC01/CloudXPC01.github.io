@@ -1,0 +1,69 @@
+// Firestore security rules for the portfolio.
+// Replace YOUR_EMAIL@gmail.com with the Google account you sign in to the admin with
+// (Admin > Settings shows a copy with your email already filled in).
+// Counter keys must match assets/js/analytics.js.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email == 'YOUR_EMAIL@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    // Public content: anyone can read, only you can change it.
+    match /site/{docId} {
+      allow read: if docId == 'public' || isOwner();
+      allow write: if isOwner();
+    }
+
+    // Upload settings: only you.
+    match /private/{docId} {
+      allow read, write: if isOwner();
+    }
+
+    // Visit counters: visitors may only add +1 to known fields. Only you can read them.
+    function counterKeys() {
+      return ['visits', 'uniques', 'newVisitors', 'mobile', 'desktop',
+        's_direct', 's_instagram', 's_linkedin', 's_youtube', 's_search', 's_behance', 's_artstation',
+        's_whatsapp', 's_x', 's_facebook', 's_github', 's_reddit', 's_other',
+        'c_instagram', 'c_linkedin', 'c_youtube', 'c_behance', 'c_artstation', 'c_vimeo', 'c_itch',
+        'c_github', 'c_x', 'c_facebook', 'c_tiktok', 'c_threads', 'c_discord', 'c_whatsapp',
+        'c_email', 'c_website', 'c_other', 'c_resume'];
+    }
+    function plusOne(k) {
+      return (resource == null && (request.resource.data.get(k, 0) in [0, 1]))
+        || (resource != null && ((request.resource.data.get(k, 0) - resource.data.get(k, 0)) in [0, 1]));
+    }
+    function validCounters() {
+      return request.resource.data.keys().hasOnly(counterKeys())
+        && plusOne('visits') && plusOne('uniques') && plusOne('newVisitors') && plusOne('mobile') && plusOne('desktop')
+        && plusOne('s_direct') && plusOne('s_instagram') && plusOne('s_linkedin') && plusOne('s_youtube')
+        && plusOne('s_search') && plusOne('s_behance') && plusOne('s_artstation') && plusOne('s_whatsapp')
+        && plusOne('s_x') && plusOne('s_facebook') && plusOne('s_github') && plusOne('s_reddit') && plusOne('s_other')
+        && plusOne('c_instagram') && plusOne('c_linkedin') && plusOne('c_youtube') && plusOne('c_behance')
+        && plusOne('c_artstation') && plusOne('c_vimeo') && plusOne('c_itch') && plusOne('c_github')
+        && plusOne('c_x') && plusOne('c_facebook') && plusOne('c_tiktok') && plusOne('c_threads')
+        && plusOne('c_discord') && plusOne('c_whatsapp') && plusOne('c_email') && plusOne('c_website')
+        && plusOne('c_other') && plusOne('c_resume');
+    }
+
+    match /days/{day} {
+      allow read: if isOwner();
+      allow create, update: if day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && validCounters();
+    }
+    match /stats/{docId} {
+      allow read: if isOwner();
+      allow create, update: if docId == 'total' && validCounters();
+    }
+
+    // Project views: +1 only, and only for projects that exist on your site.
+    match /projectViews/{projectId} {
+      allow read: if isOwner();
+      allow create, update: if request.resource.data.keys().hasOnly(['count'])
+        && plusOne('count')
+        && projectId in get(/databases/$(database)/documents/site/public).data.projectIds;
+    }
+  }
+}

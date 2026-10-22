@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=JetBrains+Mono:wght@500&family=Space+Grotesk:wght@700&display=swap">
+  <style>
+    :root { --a: #00e5ff; --b: #ff2bd6; --bg: #07070d; --text: #eef0fb; }
+    * { box-sizing: border-box; }
+    html { background: var(--bg); color: var(--text); }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; text-align: center;
+      font: 400 16px/1.6 'Inter', system-ui, sans-serif;
+      background: radial-gradient(50% 40% at 20% 10%, rgba(0, 229, 255, .16), transparent 70%), radial-gradient(50% 40% at 85% 90%, rgba(255, 43, 214, .14), transparent 70%);
+    }
+    .code { font: 500 .8rem 'JetBrains Mono', monospace; letter-spacing: .2em; color: var(--a); text-shadow: 0 0 12px var(--a); }
+    h1 {
+      margin: 10px 0; font: 700 clamp(4rem, 18vw, 9rem)/1 'Space Grotesk', system-ui, sans-serif; letter-spacing: -.04em;
+      background: linear-gradient(100deg, var(--a), var(--b)); -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 0 20px rgba(0, 229, 255, .35));
+    }
+    p { color: #a5a8b8; margin: 0 0 28px; }
+    a {
+      display: inline-block; padding: 13px 24px; border-radius: 999px; text-decoration: none; font-weight: 600; color: #06060a;
+      background: linear-gradient(110deg, var(--a), var(--b)); box-shadow: 0 0 24px rgba(0, 229, 255, .4);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="code">ERR · MISSING FRAME</p>
+    <h1>404</h1>
+    <p>This shot didn't make the final cut.</p>
+    <a href="/">Back to the portfolio</a>
+  </main>
+</body>
+</html>

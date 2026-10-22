@@ -1,0 +1,41 @@
+/* Design tokens shared by the site and the admin. theme.js overrides the colour tokens at runtime. */
+
+@property --cur-a { syntax: '<color>'; inherits: true; initial-value: #00e5ff; }
+@property --cur-b { syntax: '<color>'; inherits: true; initial-value: #ff2bd6; }
+
+:root {
+  --a: #00e5ff;
+  --b: #ff2bd6;
+  --bg: #07070d;
+  --text: #eef0fb;
+  --on-ab: #06060a;
+  --glow: 1;
+
+  --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+  --faint: color-mix(in oklab, var(--text) 40%, var(--bg));
+  --surface: color-mix(in oklab, var(--text) 5%, var(--bg));
+  --surface-2: color-mix(in oklab, var(--text) 9%, var(--bg));
+  --line: color-mix(in oklab, var(--text) 12%, transparent);
+  --line-2: color-mix(in oklab, var(--text) 20%, transparent);
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --dw: 700;
+
+  --radius: 18px;
+  --radius-sm: 10px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --gutter: clamp(16px, 4vw, 48px);
+  --maxw: 1240px;
+}
+
+/* Reusable glow recipes */
+.glow-a { box-shadow: 0 0 calc(22px * var(--glow)) color-mix(in srgb, var(--a) 40%, transparent); }
+.grad-text {
+  background: linear-gradient(100deg, var(--a), var(--b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 calc(16px * var(--glow)) color-mix(in srgb, var(--a) 35%, transparent));
+}
