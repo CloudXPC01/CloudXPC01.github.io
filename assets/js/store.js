@@ -35,13 +35,25 @@ export function loadDefaults() {
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+// The first version of the site shipped a neon theme. Saves that still carry its untouched
+// colours (and were never opened since the darkroom redesign) move to the darkroom defaults.
+const NEON = '#00e5ff,#ff2bd6,#07070d';
+const NEON_PRESETS = 'Neon,Cinema,Arcade,Poster,Sunset,Ice';
+function migrateTheme(t, d) {
+  if (!t || t.darkroom || [t.a, t.b, t.bg].map((x) => String(x || '').toLowerCase()).join() !== NEON) return t || {};
+  const out = { ...t, a: d.a, b: d.b, bg: d.bg };
+  if (!t.font || t.font === 'grotesk') out.font = d.font;
+  if (!Array.isArray(t.presets) || t.presets.map((p) => p?.name).join() === NEON_PRESETS) out.presets = clone(d.presets || []);
+  return out;
+}
+
 // Fill in anything missing (older saves, new fields) from the defaults.
 export function normalize(c, d) {
   if (!c || typeof c !== 'object') return clone(d);
   const out = clone(c);
   out.profile = { ...d.profile, ...(c.profile || {}) };
   out.profile.availability = { ...d.profile.availability, ...(c.profile?.availability || {}) };
-  out.theme = { ...d.theme, ...(c.theme || {}) };
+  out.theme = { ...d.theme, ...clone(migrateTheme(c.theme, d.theme)) };
   out.seo = { ...d.seo, ...(c.seo || {}) };
   for (const k of ['sections', 'categories', 'projects', 'experience', 'socials']) {
     if (!Array.isArray(out[k])) out[k] = clone(d[k]);

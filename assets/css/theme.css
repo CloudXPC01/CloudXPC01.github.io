@@ -1,12 +1,12 @@
 /* Design tokens shared by the site and the admin. theme.js overrides the colour tokens at runtime. */
 
-@property --cur-a { syntax: '<color>'; inherits: true; initial-value: #00e5ff; }
-@property --cur-b { syntax: '<color>'; inherits: true; initial-value: #ff2bd6; }
+@property --cur-a { syntax: '<color>'; inherits: true; initial-value: #c2321f; }
+@property --cur-b { syntax: '<color>'; inherits: true; initial-value: #5f7470; }
 
 :root {
-  --a: #00e5ff;
-  --b: #ff2bd6;
-  --bg: #07070d;
+  --a: #c2321f;
+  --b: #5f7470;
+  --bg: #0e0605;
   --text: #eef0fb;
   --on-ab: #06060a;
   --glow: 1;
@@ -22,6 +22,8 @@
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
   --dw: 700;
+  --dlw: 300;
+  --dstyle: italic;
 
   --radius: 18px;
   --radius-sm: 10px;

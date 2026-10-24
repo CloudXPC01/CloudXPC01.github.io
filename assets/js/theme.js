@@ -1,16 +1,18 @@
-// Applies the saved theme: duotone colours, glow strength, display font and effect toggles.
+// Applies the saved theme: safelight / fixer colours, ground, glow strength, display font and effect toggles.
 
+// w = heading weight in the admin; lw = weight for the big display type on the public site.
 export const FONTS = {
-  grotesk: { family: "'Space Grotesk'", q: 'Space+Grotesk:wght@500;700', w: 700, label: 'Space Grotesk (clean, techy)' },
-  syne: { family: "'Syne'", q: 'Syne:wght@600;800', w: 800, label: 'Syne (artsy, editorial)' },
-  unbounded: { family: "'Unbounded'", q: 'Unbounded:wght@500;700', w: 700, label: 'Unbounded (bold, wide)' },
-  orbitron: { family: "'Orbitron'", q: 'Orbitron:wght@600;800', w: 800, label: 'Orbitron (sci-fi HUD)' },
-  bebas: { family: "'Bebas Neue'", q: 'Bebas+Neue', w: 400, label: 'Bebas Neue (cinematic poster)' },
+  newsreader: { family: "'Newsreader'", q: 'Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..600', w: 500, lw: 300, italic: true, label: 'Newsreader (italic serif, darkroom)' },
+  grotesk: { family: "'Space Grotesk'", q: 'Space+Grotesk:wght@500;700', w: 700, lw: 500, label: 'Space Grotesk (clean, techy)' },
+  syne: { family: "'Syne'", q: 'Syne:wght@600;800', w: 800, lw: 600, label: 'Syne (artsy, editorial)' },
+  unbounded: { family: "'Unbounded'", q: 'Unbounded:wght@500;700', w: 700, lw: 500, label: 'Unbounded (bold, wide)' },
+  orbitron: { family: "'Orbitron'", q: 'Orbitron:wght@600;800', w: 800, lw: 600, label: 'Orbitron (sci-fi HUD)' },
+  bebas: { family: "'Bebas Neue'", q: 'Bebas+Neue', w: 400, lw: 400, label: 'Bebas Neue (cinematic poster)' },
 };
 
 export const DEFAULT_THEME = {
-  a: '#00e5ff', b: '#ff2bd6', bg: '#07070d', glow: 1, font: 'grotesk',
-  duotone: true, grain: true, grid: true, cursorGlow: true,
+  a: '#c2321f', b: '#5f7470', bg: '#0e0605', glow: 1, font: 'newsreader',
+  duotone: true, grain: true, grid: false, cursorGlow: false,
 };
 
 const isHex = (v) => /^#[0-9a-f]{6}$/i.test(v || '');
@@ -45,11 +47,15 @@ export function applyTheme(theme = {}) {
   root.classList.toggle('theme-light', light);
   s.setProperty('--on-ab', (luminance(t.a) + luminance(t.b)) / 2 > 0.22 ? '#06060a' : '#ffffff');
 
-  const f = FONTS[t.font] || FONTS.grotesk;
-  s.setProperty('--font-display', `${f.family}, system-ui, sans-serif`);
+  const f = FONTS[t.font] || FONTS.newsreader;
+  s.setProperty('--font-display', `${f.family}, ${f.italic ? 'Georgia, serif' : 'system-ui, sans-serif'}`);
   s.setProperty('--dw', String(f.w));
+  s.setProperty('--dlw', String(f.lw ?? f.w));
+  s.setProperty('--dstyle', f.italic ? 'italic' : 'normal');
+  // The page's own body fonts live in the link's data-base (the admin keeps Inter + JetBrains Mono).
   const link = document.getElementById('font-link');
-  const href = `https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=${f.q}&display=swap`;
+  const base = link?.dataset.base || 'Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500';
+  const href = `https://fonts.googleapis.com/css2?family=${base}&family=${f.q}&display=swap`;
   if (link && link.getAttribute('href') !== href) link.setAttribute('href', href);
 
   const cl = document.body.classList;
@@ -59,11 +65,11 @@ export function applyTheme(theme = {}) {
   cl.toggle('cursor-on', !!t.cursorGlow);
 
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t.bg);
-  setFavicon(t.a, t.b);
+  setFavicon(t.a, t.b, t.bg);
 }
 
-function setFavicon(a, b) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect x="6" y="6" width="52" height="52" rx="16" fill="url(#g)"/><circle cx="32" cy="32" r="9" fill="#07070d"/></svg>`;
+function setFavicon(a, b, bg) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="6" y="6" width="52" height="52" rx="10" fill="${bg}"/><circle cx="32" cy="32" r="17" fill="${a}"/><circle cx="32" cy="32" r="7" fill="${b}"/></svg>`;
   let link = document.querySelector('link[rel="icon"]');
   if (!link) {
     link = document.createElement('link');

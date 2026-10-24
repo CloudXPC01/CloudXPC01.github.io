@@ -26,22 +26,22 @@
     ]
   },
   "theme": {
-    "a": "#00e5ff",
-    "b": "#ff2bd6",
-    "bg": "#07070d",
+    "a": "#c2321f",
+    "b": "#5f7470",
+    "bg": "#0e0605",
     "glow": 1,
-    "font": "grotesk",
+    "font": "newsreader",
     "duotone": true,
     "grain": true,
-    "grid": true,
-    "cursorGlow": true,
+    "grid": false,
+    "cursorGlow": false,
+    "darkroom": true,
     "presets": [
-      { "name": "Neon", "a": "#00e5ff", "b": "#ff2bd6" },
-      { "name": "Cinema", "a": "#8b5cf6", "b": "#ffb020" },
-      { "name": "Arcade", "a": "#b6ff3b", "b": "#2f6bff" },
-      { "name": "Poster", "a": "#ff3b5c", "b": "#19e6c1" },
-      { "name": "Sunset", "a": "#ff7a18", "b": "#d4145a" },
-      { "name": "Ice", "a": "#7df9ff", "b": "#5b6cff" }
+      { "name": "Darkroom", "a": "#c2321f", "b": "#5f7470" },
+      { "name": "Amber safelight", "a": "#d4761c", "b": "#56706b" },
+      { "name": "Sepia toner", "a": "#a8713f", "b": "#6d5b4b" },
+      { "name": "Cyanotype", "a": "#2f6fa8", "b": "#b89a6a" },
+      { "name": "Green safelight", "a": "#4c8a3c", "b": "#7a6a58" }
     ]
   },
   "sections": [

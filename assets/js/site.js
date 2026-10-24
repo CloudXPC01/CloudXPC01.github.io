@@ -1,4 +1,5 @@
-// Public portfolio: renders everything from the content document.
+// Public portfolio: renders everything from the content document, in the "darkroom" look.
+// Motion (GSAP + ScrollTrigger + Lenis) is optional: without it every print is fully developed and static.
 import { esc, prose, fmtMonth, fmtRange, initials, ratioOf } from './dom.js';
 import { DEMO, loadDefaults, normalize, readCache, writeCache, fetchPublic } from './store.js';
 import { applyTheme, pairVars } from './theme.js';
@@ -14,16 +15,31 @@ const PREVIEW = params.has('preview');
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const FOCUS = (params.get('focus') || '').toLowerCase();
 
+// The CDN scripts are deferred, so they have run (or failed) before this module.
+const G = window.gsap && window.ScrollTrigger ? window.gsap : null;
+const ST = G ? window.ScrollTrigger : null;
+const MOTION = !!G && !REDUCED;
+const root = document.documentElement;
+if (G) {
+  G.registerPlugin(ST);
+  G.defaults({ ease: 'power3.out', duration: 0.9 });
+  root.classList.add('js');
+}
+if (REDUCED) root.classList.add('rm');
+if (MOTION) root.classList.add('anim');
+if (MOTION && !PREVIEW) root.classList.add('reveal');
+
 const state = {
   c: null,
   cat: FOCUS || 'all',
-  orient: 'all',
-  kind: 'all',
   list: [],
   project: null,
   slide: 0,
   timers: [],
 };
+
+// Everything GSAP creates in render() lives in these, so a re-render (admin preview) can revert it cleanly.
+const motion = { lenis: null, page: null, work: null, workMM: null, pinST: null, intro: null, introDone: !MOTION || PREVIEW, busy: false, develop: [] };
 
 const app = $('#app');
 const modal = $('#modal');
@@ -34,6 +50,8 @@ const panel = $('#modalPanel');
 const published = (c) => c.projects.filter((p) => p.published !== false && p.title);
 const catOf = (id) => state.c.categories.find((x) => x.id === id);
 const visibleSections = (c) => c.sections.filter((s) => s.visible !== false);
+const pad2 = (n) => String(n).padStart(2, '0');
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 function toast(msg) {
   const t = $('#toast');
@@ -51,157 +69,207 @@ function socialIcons(c) {
   return socialList(c).map((s) => {
     const p = platformOf(s);
     const ext = s.platform !== 'email';
-    return `<a class="icon-btn" href="${esc(socialHref(s))}" ${ext ? 'target="_blank" rel="noopener"' : ''} aria-label="${esc(p.label)}" title="${esc(p.label)}" data-track="${esc(s.platform)}"><i class="${p.icon}"></i></a>`;
+    return `<a class="icon-btn" href="${esc(socialHref(s))}" ${ext ? 'target="_blank" rel="noopener"' : ''} aria-label="${esc(p.label)}" title="${esc(p.label)}" data-track="${esc(s.platform)}"><i class="${p.icon}" aria-hidden="true"></i></a>`;
   }).join('');
 }
 
 function facade(m, { label = '', cls = '' } = {}) {
   const t = thumbUrl(m, 1400);
-  return `<button class="facade ${cls}" data-play="${esc(m.raw)}" aria-label="${esc(label || actionLabel(m))}">
-    ${t ? `<img src="${esc(t)}" alt="" loading="lazy" decoding="async">` : '<span class="ph ph-soft"></span>'}
-    <span class="play"><i class="${actionIcon(m)}"></i></span>
+  return `<button type="button" class="facade ${cls}" data-play="${esc(m.raw)}" aria-label="${esc(label || actionLabel(m))}">
+    ${t ? `<img src="${esc(t)}" alt="" loading="lazy" decoding="async">` : '<span class="ph-soft"></span>'}
+    <span class="play"><i class="${actionIcon(m)}" aria-hidden="true"></i></span>
     ${label ? `<span class="facade-label">${esc(label)}</span>` : ''}
   </button>`;
 }
 
-function head(s, n) {
-  return `<header class="sec-head">
-    <p class="eyebrow rv">${String(n).padStart(2, '0')} / ${esc(s.nav || s.title)}</p>
-    <h2 class="rv" style="--d:1">${esc(s.title)}</h2>
-    ${s.intro ? `<p class="sec-intro rv" style="--d:2">${esc(s.intro)}</p>` : ''}
-  </header>`;
+function head(s) {
+  return `<div class="sec-head" data-rv>
+    <h2 class="h2" id="${esc(s.id)}-h">${esc(s.title)}</h2>
+    ${s.intro ? `<p>${esc(s.intro)}</p>` : ''}
+  </div>`;
+}
+
+// Blank-paper emulsion: deterministic variety, like the hand-placed prints in the approved preview.
+const TINTS = [
+  'color-mix(in srgb, var(--b) 45%, transparent)',
+  'rgba(243, 236, 226, .18)',
+  'color-mix(in srgb, color-mix(in srgb, var(--a) 75%, #000) 60%, transparent)',
+  'color-mix(in srgb, var(--a) 55%, transparent)',
+];
+function emulVars(i) {
+  const r = (k) => (Math.sin((i + 1) * k) + 1) / 2;
+  return `--x1:${Math.round(27 + r(12.99) * 42)}%;--y1:${Math.round(34 + r(78.23) * 33)}%;--x2:${Math.round(43 + r(39.35) * 36)}%;--y2:${Math.round(32 + r(11.13) * 36)}%;--t1:${TINTS[i % 4]};--t2:${TINTS[(i + 1) % 4]};--ang:${(16 + 47 * (i + 1)) % 360}deg`;
+}
+
+// The paper part of a print. img = image URL, inner = media HTML (both make it a "real" print),
+// over = overlay HTML on top of a blank print (e.g. initials).
+function paper({ i = 0, img = '', alt = '', inner = '', over = '', mark = '', label = '', flag = '', peg = true }) {
+  const real = !!(img || inner);
+  return `<span class="swing">${peg ? '<i class="peg" aria-hidden="true"></i>' : ''}
+    <span class="paper"><span class="frame" style="${real ? '' : emulVars(i)}">
+      <span class="emul${real ? ' has-img' : ''}">${img ? `<img src="${esc(img)}" alt="${esc(alt)}" loading="lazy" decoding="async">` : inner}</span>
+      <span class="edge" aria-hidden="true"></span>${over}
+      ${mark ? `<span class="pmark" aria-hidden="true">${esc(mark)}</span>` : ''}${flag}
+      ${label ? `<span class="plabel" aria-hidden="true">${esc(label)}</span>` : ''}
+    </span></span></span>`;
 }
 
 /* ---------- sections ---------- */
 
 function heroSection(s, c) {
   const p = c.profile;
+  const words = String(p.name || '').trim().split(/\s+/).filter(Boolean);
+  const lines = words.length > 1 ? [words[0], words.slice(1).join(' ')] : words;
   const tags = (p.taglines || []).filter(Boolean);
   const work = visibleSections(c).find((x) => x.type === 'work');
   const contact = visibleSections(c).find((x) => x.type === 'contact');
   const avail = p.availability?.show && p.availability?.text;
-  return `<section class="sec hero" id="${esc(s.id)}" data-sec style="${pairVars(s.colors)}">
-    <div class="wrap hero-grid">
-      <div class="hero-copy">
-        ${avail ? `<p class="badge rv"><span class="pulse"></span>${esc(p.availability.text)}</p>` : ''}
-        <h1 class="hero-name rv" style="--d:1"><span class="grad-text">${String(p.name || '').split(/\s+/).filter(Boolean).map((w) => `<span class="w">${esc(w)}</span>`).join(' ')}</span></h1>
-        <p class="hero-role rv" style="--d:2">${esc(p.role)}</p>
-        ${tags.length ? `<p class="hero-tag rv" style="--d:3"><span class="caret">&gt;</span> <span class="rotator" data-tags="${esc(JSON.stringify(tags))}">${esc(tags[0])}</span><span class="cursor-bar"></span></p>` : ''}
-        <div class="hero-cta rv" style="--d:4">
-          ${work ? `<a class="btn btn-primary" href="#${esc(work.id)}">View work <i class="fa-solid fa-arrow-down"></i></a>` : ''}
-          ${contact ? `<a class="btn" href="#${esc(contact.id)}">Get in touch</a>` : ''}
-          ${p.resume ? `<a class="btn" href="${esc(socialHref({ url: p.resume }))}" target="_blank" rel="noopener" data-track="resume"><i class="fa-solid fa-file-arrow-down"></i> Résumé</a>` : ''}
+  const acts = [
+    work ? `<a class="btn btn-primary" href="#${esc(work.id)}">${esc(work.nav || work.title)} <i class="fa-solid fa-arrow-down" aria-hidden="true"></i></a>` : '',
+    contact ? `<a class="btn" href="#${esc(contact.id)}">${esc(contact.nav || contact.title)}</a>` : '',
+    p.resume ? `<a class="btn" href="${esc(socialHref({ url: p.resume }))}" target="_blank" rel="noopener" data-track="resume"><i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i> Résumé</a>` : '',
+    socialIcons(c),
+  ].join('');
+  return `<header class="hero" id="${esc(s.id)}" data-sec data-glow="1" style="${pairVars(s.colors)}">
+    <div class="hero-in">
+      <div class="countdown" aria-hidden="true"><span class="cd-n">3</span><span class="cd-n">2</span><span class="cd-n">1</span><span class="cd-label">Exposing…</span></div>
+      <h1 class="name" aria-label="${esc(p.name)}">${lines.map((l) => `<span class="nl" aria-hidden="true"><span>${esc(l)}</span></span>`).join('')}</h1>
+      <div class="hero-foot">
+        <div class="hero-copy">
+          ${p.role ? `<p class="role">${esc(p.role)}</p>` : ''}
+          ${tags.length ? `<p class="tagline" data-tags="${esc(JSON.stringify(tags))}">${esc(tags[0])}</p>` : ''}
+          ${acts.trim() ? `<div class="hero-acts">${acts}</div>` : ''}
         </div>
-        <div class="hero-socials rv" style="--d:5">${socialIcons(c)}</div>
+        ${avail ? `<p class="tag"><i aria-hidden="true"></i>${esc(p.availability.text)}</p>` : '<span></span>'}
+        <p class="cue">${work ? 'Scroll to develop' : ''}</p>
       </div>
-      <div class="hero-visual rv" style="--d:3">${reel(p)}</div>
     </div>
-  </section>`;
+    ${reel(p)}
+  </header>`;
 }
 
+// Showreel: a large 16:9 print that develops as it scrolls in. Nothing at all when empty.
 function reel(p) {
   const m = parse(p.showreel);
-  let inner;
-  if (!m) {
-    inner = `<div class="reel-art"><span class="orb o1"></span><span class="orb o2"></span><span class="ring r1"></span><span class="ring r2"></span><span class="reel-initials">${esc(p.shortName || initials(p.name))}</span></div>`;
-  } else if (m.type === 'video' && autoplayOK()) {
+  if (!m) return '';
+  const cap = p.showreelCaption || 'Showreel';
+  let inner = '';
+  let img = '';
+  let extra = '';
+  if (m.type === 'video' && autoplayOK()) {
     const poster = thumbUrl(m, 1400);
-    inner = `<video class="reel-video" src="${esc(m.src)}" ${poster ? `poster="${esc(poster)}"` : ''} muted loop playsinline autoplay preload="auto"></video>
-      <button class="reel-sound" data-reel-sound aria-label="Turn sound on"><i class="fa-solid fa-volume-xmark"></i></button>`;
+    inner = `<video class="reel-video" src="${esc(m.src)}" ${poster ? `poster="${esc(poster)}"` : ''} muted loop playsinline autoplay preload="auto" aria-label="${esc(cap)}"></video>`;
+    extra = '<button type="button" class="reel-sound" data-reel-sound aria-label="Turn sound on"><i class="fa-solid fa-volume-xmark" aria-hidden="true"></i></button>';
   } else if (m.type === 'image') {
-    inner = `<img class="reel-img" src="${esc(srcUrl(m, 1600))}" alt="">`;
+    img = srcUrl(m, 1800);
+  } else if (m.type === 'link') {
+    inner = `<a class="linkcard" href="${esc(m.url)}" target="_blank" rel="noopener"><i class="${esc(m.icon)}" aria-hidden="true"></i><span>Watch the reel on ${esc(m.site)}</span></a>`;
   } else {
     inner = facade(m, { label: 'Play showreel' });
   }
-  return `<div class="reel">
-      ${inner}
-      <span class="vf tl"></span><span class="vf tr"></span><span class="vf bl"></span><span class="vf br"></span>
-    </div>
-    <div class="reel-meta"><span><i class="rec"></i>REC</span><span class="reel-cap">${esc(p.showreelCaption || 'Showreel')}</span><span class="tc" id="timecode">00:00:00:00</span></div>`;
-}
-
-// Words never break; if the longest one is wider than the column, shrink the whole name to fit.
-function fitName() {
-  const h = $('.hero-name');
-  if (!h) return;
-  h.style.fontSize = '';
-  const avail = h.clientWidth;
-  const widest = Math.max(0, ...$$('.w', h).map((w) => w.getBoundingClientRect().width));
-  if (avail && widest > avail) h.style.fontSize = `${parseFloat(getComputedStyle(h).fontSize) * (avail / widest) * 0.97}px`;
+  return `<div class="reel-wrap"><figure class="print reel" data-develop>
+    ${paper({ i: 5, img, alt: cap, inner, mark: 'Reel', peg: false, flag: extra })}
+    <figcaption class="cap"><span class="cap-t">${esc(cap)}</span></figcaption>
+  </figure></div>`;
 }
 
 function autoplayOK() {
   return !REDUCED && !navigator.connection?.saveData && innerWidth >= 768;
 }
 
-function workSection(s, c, n) {
-  return `<section class="sec sec-work" id="${esc(s.id)}" data-sec style="${pairVars(s.colors)}">
-    <div class="wrap">${head(s, n)}<div class="work-body" id="workBody"></div></div>
+// Words never break; if the longest line is wider than the column, shrink the whole name to fit.
+function fitName() {
+  const h = $('.hero .name');
+  if (!h) return;
+  h.style.fontSize = '';
+  const avail = h.clientWidth;
+  const widest = Math.max(0, ...$$('.nl', h).map((l) => l.firstElementChild.getBoundingClientRect().width + (parseFloat(getComputedStyle(l).paddingLeft) || 0) + 6));
+  if (avail && widest > avail) h.style.fontSize = `${parseFloat(getComputedStyle(h).fontSize) * (avail / widest) * 0.97}px`;
+}
+
+function workSection(s) {
+  return `<section class="sec-work" id="${esc(s.id)}" data-sec data-work data-glow=".55" style="${pairVars(s.colors)}" aria-labelledby="${esc(s.id)}-h">
+    <div class="work-head">
+      <div class="work-title" data-rv><h2 id="${esc(s.id)}-h">${esc(s.title)}</h2>${s.intro ? `<p class="work-intro">${esc(s.intro)}</p>` : ''}</div>
+      <div class="trays" id="trays" role="group" aria-label="Filter work by category" hidden></div>
+      <p class="line-note" id="lineNote" aria-live="polite"></p>
+    </div>
+    <div class="track" id="track"></div>
   </section>`;
 }
 
-function aboutSection(s, c, n) {
+function aboutSection(s, c) {
   const p = c.profile;
   const m = parse(p.photo);
   const photo = m ? thumbUrl(m, 900) || srcUrl(m) : '';
-  const list = (arr, cls) => (arr || []).filter(Boolean).map((x) => `<li class="${cls}">${esc(x)}</li>`).join('');
-  const highlights = (p.highlights || []).filter((x) => x.value || x.label);
-  return `<section class="sec sec-about" id="${esc(s.id)}" data-sec style="${pairVars(s.colors)}">
-    <div class="wrap about-grid">
-      <div class="about-side rv">
-        ${photo
-          ? `<div class="photo"><div class="photo-in duo"><img src="${esc(photo)}" alt="${esc(p.name)}" loading="lazy"></div></div>`
-          : `<div class="photo"><div class="photo-in photo-ph"><span>${esc(p.shortName || initials(p.name))}</span></div></div>`}
-        ${p.location ? `<p class="about-loc"><i class="fa-solid fa-location-dot"></i> ${esc(p.location)}</p>` : ''}
+  const paras = String(p.bio || '').replace(/\r/g, '').split(/\n\s*\n/).filter((x) => x.trim());
+  const facts = [
+    p.location ? ['Based in', p.location] : null,
+    p.availability?.show && p.availability?.text ? ['Availability', p.availability.text] : null,
+    ...(p.highlights || []).filter((x) => x.value || x.label).map((x) => [x.label, x.value]),
+  ].filter(Boolean);
+  const skills = (p.skills || []).filter(Boolean);
+  const software = (p.software || []).filter(Boolean);
+  const mono = p.shortName || initials(p.name);
+  return `<section class="sec sec-about" id="${esc(s.id)}" data-sec data-glow=".8" style="${pairVars(s.colors)}" aria-labelledby="${esc(s.id)}-h">
+    <div class="about">
+      <div>
+        <h2 class="h2" id="${esc(s.id)}-h" data-rv>${esc(s.title)}</h2>
+        ${paras[0] ? `<div class="lead" data-rv>${prose(paras[0])}</div>` : ''}
+        ${paras.length > 1 ? `<div class="body prose" data-rv>${prose(paras.slice(1).join('\n\n'))}</div>` : ''}
+        ${facts.length ? `<dl class="facts" data-rv>${facts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}
       </div>
-      <div class="about-copy">
-        ${head(s, n)}
-        <div class="prose rv">${prose(p.bio)}</div>
-        ${highlights.length ? `<div class="highlights rv">${highlights.map((x) => `<div class="hl"><span class="hl-v grad-text">${esc(x.value)}</span><span class="hl-l">${esc(x.label)}</span></div>`).join('')}</div>` : ''}
-        ${p.skills?.length ? `<h3 class="mini rv">Skills</h3><ul class="pills rv">${list(p.skills, 'pill')}</ul>` : ''}
-        ${p.software?.length ? `<h3 class="mini rv">Software</h3><ul class="pills rv">${list(p.software, 'pill pill-soft')}</ul>` : ''}
-      </div>
+      <figure class="portrait print" data-develop>
+        ${paper({ i: 7, img: photo, alt: p.name, mark: 'Portrait', label: photo ? '' : 'Portrait · awaiting exposure', over: photo ? '' : `<span class="ph-initials" aria-hidden="true">${esc(mono)}</span>` })}
+        <figcaption class="cap"><span class="cap-m">${esc([p.name, p.location].filter(Boolean).join(' · '))}</span></figcaption>
+      </figure>
     </div>
+    ${skills.length || software.length ? `<div class="spec-block">
+      ${skills.length ? `<h3 class="soft-title" data-rv>Specializations</h3>
+        <ol class="spec-list">${skills.map((k, i) => `<li class="spec"><span class="spec-n">${pad2(i + 1)}</span><span class="spec-name">${esc(k)}</span></li>`).join('')}</ol>` : ''}
+      ${software.length ? `<h3 class="soft-title${skills.length ? ' shelf' : ''}" data-rv>On the shelf — software</h3>
+        <ul class="bottles" data-rv-group>${software.map((x) => `<li class="bottle">${esc(x)}</li>`).join('')}</ul>` : ''}
+    </div>` : ''}
   </section>`;
 }
 
-function experienceSection(s, c, n) {
-  return `<section class="sec sec-exp" id="${esc(s.id)}" data-sec style="${pairVars(s.colors)}">
-    <div class="wrap narrow">${head(s, n)}<div id="expBody"></div></div>
+function experienceSection(s) {
+  return `<section class="sec sec-exp" id="${esc(s.id)}" data-sec data-glow=".7" style="${pairVars(s.colors)}" aria-labelledby="${esc(s.id)}-h">
+    ${head(s)}<div id="expBody"></div>
   </section>`;
 }
 
-function contactSection(s, c, n) {
+function contactSection(s, c) {
   const email = c.profile.email || c.socials.find((x) => x.platform === 'email' && x.url)?.url || '';
   const socials = socialList(c, { skipEmail: !!email });
-  return `<section class="sec sec-contact" id="${esc(s.id)}" data-sec style="${pairVars(s.colors)}">
-    <div class="wrap">
-      <div class="contact-box rv">
-        <p class="eyebrow">${String(n).padStart(2, '0')} / ${esc(s.nav || 'Contact')}</p>
-        <h2 class="grad-text">${esc(s.title)}</h2>
-        ${s.intro ? `<p class="sec-intro">${esc(s.intro)}</p>` : ''}
-        ${email ? `<a class="btn btn-primary btn-lg" href="${esc(socialHref({ platform: 'email', url: email }))}" data-track="email"><i class="fa-solid fa-envelope"></i> ${esc(email.replace(/^mailto:/i, ''))}</a>` : ''}
-        ${socials.length ? `<div class="social-grid">${socials.map((x) => {
-          const p = platformOf(x);
-          return `<a class="social" href="${esc(socialHref(x))}" ${x.platform !== 'email' ? 'target="_blank" rel="noopener"' : ''} data-track="${esc(x.platform)}"><i class="${p.icon}"></i><span><b>${esc(p.label)}</b><small>${esc(handleOf(x))}</small></span></a>`;
-        }).join('')}</div>` : ''}
+  const shown = email.replace(/^mailto:/i, '').toLowerCase();
+  return `<section class="sec sec-contact" id="${esc(s.id)}" data-sec data-glow="1" style="${pairVars(s.colors)}" aria-labelledby="${esc(s.id)}-h">
+    <h2 class="contact-h" id="${esc(s.id)}-h" data-rv>${esc(s.title)}</h2>
+    <div class="contact-grid">
+      <div data-rv>
+        ${email ? `<a class="mail" href="${esc(socialHref({ platform: 'email', url: email }))}" data-track="email">${esc(shown)}</a>` : ''}
+        ${s.intro ? `<p class="avail">${esc(s.intro)}</p>` : ''}
       </div>
+      ${socials.length ? `<div class="links" data-rv>${socials.map((x) => {
+        const p = platformOf(x);
+        return `<a href="${esc(socialHref(x))}" ${x.platform !== 'email' ? 'target="_blank" rel="noopener"' : ''} data-track="${esc(x.platform)}"><i class="${p.icon}" aria-hidden="true"></i>${esc(p.label)}<small>${esc(handleOf(x))}</small></a>`;
+      }).join('')}</div>` : ''}
     </div>
   </section>`;
 }
 
-function textSection(s, c, n) {
+function textSection(s) {
   const m = parse(s.media);
-  const r = ratioOf(s.orientation);
   let media = '';
   if (m) {
-    const inner = m.type === 'image' ? `<img class="player" src="${esc(srcUrl(m, 1600))}" alt="" loading="lazy">` : m.type === 'link' ? linkCard(m) : facade(m);
-    media = `<div class="text-media rv"><div class="frame" style="--r:${r}">${inner}</div></div>`;
+    const img = m.type === 'image' ? srcUrl(m, 1600) : '';
+    const inner = img ? '' : m.type === 'link' ? linkCard(m) : facade(m);
+    media = `<figure class="print text-media" data-develop style="--ar:${ratioOf(s.orientation)};--rot:-.8deg">${paper({ i: 3, img, alt: s.title, inner })}</figure>`;
   }
-  return `<section class="sec sec-text" id="${esc(s.id)}" data-sec style="${pairVars(s.colors)}">
-    <div class="wrap text-grid ${media ? 'has-media' : ''}">
-      <div>${head(s, n)}<div class="prose rv">${prose(s.body)}</div>
-        ${s.buttonUrl ? `<p class="rv"><a class="btn btn-primary" href="${esc(socialHref({ url: s.buttonUrl }))}" target="_blank" rel="noopener">${esc(s.buttonLabel || 'Learn more')} <i class="fa-solid fa-arrow-right"></i></a></p>` : ''}
+  return `<section class="sec sec-text" id="${esc(s.id)}" data-sec data-glow=".7" style="${pairVars(s.colors)}" aria-labelledby="${esc(s.id)}-h">
+    <div class="text-grid ${media ? 'has-media' : ''}">
+      <div>${head(s)}<div class="prose" data-rv>${prose(s.body)}</div>
+        ${s.buttonUrl ? `<p data-rv><a class="btn btn-primary" href="${esc(socialHref({ url: s.buttonUrl }))}" target="_blank" rel="noopener">${esc(s.buttonLabel || 'Learn more')} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></p>` : ''}
       </div>
       ${media}
     </div>
@@ -210,145 +278,246 @@ function textSection(s, c, n) {
 
 const RENDER = { hero: heroSection, work: workSection, about: aboutSection, experience: experienceSection, contact: contactSection, text: textSection };
 
-/* ---------- work grid ---------- */
+/* ---------- work: prints on the line ---------- */
 
 function sortProjects(list) {
   return list.map((p, i) => ({ p, i })).sort((x, y) => (y.p.featured ? 1 : 0) - (x.p.featured ? 1 : 0) || x.i - y.i).map((x) => x.p);
 }
 
-function cardHTML(p, i) {
+function printCard(p, i) {
   const cat = catOf(p.category);
-  const r = ratioOf(p.orientation);
+  const ar = ratioOf(p.orientation);
   const first = (p.media || []).map((m) => parse(m.url)).find(Boolean);
-  const cover = parse(p.cover);
-  const thumbSrc = cover || first || parse(p.compare?.after);
-  const t = thumbUrl(thumbSrc, r >= 1 ? 1000 : 640);
-  const hasBA = p.compare?.before && p.compare?.after;
-  const flag = p.featured ? '<span class="card-flag"><i class="fa-solid fa-star"></i> Featured</span>' : hasBA ? '<span class="card-flag">Breakdown</span>' : '';
-  return `<button class="card rv" style="--r:${r};--d:${i % 6};${pairVars(cat?.colors)}" data-open="${esc(p.id)}" aria-label="${esc(p.title)}">
-    <span class="thumb ${t ? 'duo' : ''}">${t ? `<img src="${esc(t)}" alt="" loading="lazy" decoding="async">` : `<span class="ph"><i class="${esc(cat?.icon || 'fa-solid fa-star')}"></i></span>`}</span>
-    ${flag}
-    ${isPlayable(first) ? '<span class="card-play"><i class="fa-solid fa-play"></i></span>' : ''}
-    <span class="card-info">
-      <span class="card-cat">${esc(cat?.name || '')}</span>
-      <span class="card-title">${esc(p.title)}</span>
-      ${p.summary ? `<span class="card-sum">${esc(p.summary)}</span>` : ''}
-    </span>
-  </button>`;
+  const src = parse(p.cover) || first || parse(p.compare?.after);
+  const img = thumbUrl(src, ar >= 1 ? 1000 : 700);
+  // Width factor in the wrapped grid, height factor on the pinned line (keeps wide prints from hogging it).
+  const wf = ar >= 2 ? 1.5 : ar > 1.2 ? 1.25 : ar < 0.7 ? 0.8 : 1;
+  const hf = ar >= 2 ? 0.72 : ar > 1.2 ? 0.82 : 1;
+  const meta = [cat?.name, p.date ? fmtMonth(p.date) : ''].filter(Boolean).join(' · ');
+  const flags = [p.featured ? '<span>Featured</span>' : '', isPlayable(first) ? '<i class="fa-solid fa-play" aria-hidden="true"></i>' : ''].join('');
+  return `<article class="print" data-cat="${esc(p.category)}" style="--rot:${[-0.5, 0, 0.5, 1, -1, -0.5][i % 6]}deg;--ar:${ar.toFixed(4)};--wf:${wf};--hf:${hf};${pairVars(cat?.colors)}">
+    <button type="button" class="print-btn" data-open="${esc(p.id)}" aria-label="${esc(meta ? `${p.title}, ${meta}` : p.title)}">
+      ${paper({ i, img, mark: pad2(i + 1), label: img ? '' : `${cat?.name || 'Untitled'} · your shot here`, flag: flags ? `<span class="pflag" aria-hidden="true">${flags}</span>` : '' })}
+      <span class="cap"><span class="cap-t">${esc(p.title)}</span>${meta ? `<span class="cap-m">${esc(meta)}</span>` : ''}</span>
+    </button>
+  </article>`;
 }
 
 function renderWork() {
-  const body = $('#workBody');
-  if (!body) return;
+  const sec = $('[data-work]');
+  if (!sec) return;
   const c = state.c;
   const all = published(c);
   let cats = c.categories.filter((cat) => all.some((p) => p.category === cat.id));
   if (FOCUS) cats = [...cats.filter((x) => x.id === FOCUS), ...cats.filter((x) => x.id !== FOCUS)];
   if (state.cat !== 'all' && !cats.some((x) => x.id === state.cat)) state.cat = 'all';
   const cur = cats.find((x) => x.id === state.cat);
-
-  let items = sortProjects(state.cat === 'all' ? all : all.filter((p) => p.category === state.cat));
-  const hasPortrait = items.some((p) => ratioOf(p.orientation) < 0.95);
-  const hasLandscape = items.some((p) => ratioOf(p.orientation) > 1.05);
-  const showOrient = hasPortrait && hasLandscape;
-  if (!showOrient) state.orient = 'all';
-  if (state.orient === 'landscape') items = items.filter((p) => ratioOf(p.orientation) > 1.05);
-  if (state.orient === 'portrait') items = items.filter((p) => ratioOf(p.orientation) < 0.95);
+  const items = sortProjects(state.cat === 'all' ? all : all.filter((p) => p.category === state.cat));
   state.list = items;
 
-  const tab = (id, label, count, icon, colors) =>
-    `<button class="tab" role="tab" aria-selected="${state.cat === id}" data-cat="${esc(id)}" style="${pairVars(colors)}">${icon ? `<i class="${esc(icon)}"></i>` : ''}${esc(label)}<span class="count">${count}</span></button>`;
-  const chip = (id, label, icon) =>
-    `<button class="chip" aria-pressed="${state.orient === id}" data-orient="${id}">${icon ? `<i class="${icon}"></i>` : ''}${label}</button>`;
+  const tray = (id, label, n, colors) =>
+    `<button type="button" class="tray" data-cat="${esc(id)}" aria-pressed="${state.cat === id}" style="${pairVars(colors)}"><b>${esc(label)}</b><span>${plural(n, 'print', 'prints')}</span></button>`;
+  const trays = $('#trays', sec);
+  trays.hidden = cats.length < 2;
+  trays.innerHTML = cats.length > 1 ? tray('all', 'All', all.length) + cats.map((x) => tray(x.id, x.name, all.filter((p) => p.category === x.id).length, x.colors)).join('') : '';
+  $('#lineNote', sec).textContent = cur?.blurb || '';
 
-  body.innerHTML = `
-    ${cats.length > 1 ? `<div class="tabs" role="tablist" aria-label="Categories">${tab('all', 'All', all.length)}${cats.map((x) => tab(x.id, x.name, all.filter((p) => p.category === x.id).length, x.icon, x.colors)).join('')}</div>` : ''}
-    <div class="work-sub">
-      <p class="cat-blurb">${esc(cur?.blurb || '')}</p>
-      ${showOrient ? `<div class="chips" aria-label="Orientation">${chip('all', 'All')}${chip('landscape', 'Landscape', 'fa-solid fa-tv')}${chip('portrait', 'Portrait', 'fa-solid fa-mobile-screen')}</div>` : ''}
-    </div>
-    ${items.length ? `<div class="jgrid">${items.map(cardHTML).join('')}</div>` : '<p class="empty">Nothing here yet.</p>'}`;
+  const contact = visibleSections(c).find((x) => x.type === 'contact');
+  $('#track', sec).innerHTML = items.length
+    ? `<svg class="cord" aria-hidden="true"><path fill="none" stroke-width="2" stroke-linecap="round"/></svg>
+      ${items.map(printCard).join('')}
+      <div class="endcard"><h3>End of the line</h3><p>${plural(items.length, 'print', 'prints')} ${cur ? `in ${esc(cur.name)}` : 'on the line'}.</p>
+        ${contact ? `<a class="btn" href="#${esc(contact.id)}">${esc(contact.nav || contact.title)} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>` : ''}</div>`
+    : '<p class="empty">Nothing here yet.</p>';
 
   // The work section takes the selected category's colours (if it has its own pair).
-  const sec = body.closest('[data-sec]');
-  const own = state.c.sections.find((x) => x.id === sec.id)?.colors;
+  const own = c.sections.find((x) => x.id === sec.id)?.colors;
   const pair = cur?.colors?.a ? cur.colors : own?.a ? own : null;
   if (pair) { sec.style.setProperty('--a', pair.a); sec.style.setProperty('--b', pair.b); }
   else { sec.style.removeProperty('--a'); sec.style.removeProperty('--b'); }
   if (sec.classList.contains('is-current')) setCurrent(sec);
-  layoutGrid();
-  reveal(body);
 }
 
-// Justified rows: pack cards into rows near a target height, then scale each row to fill the width.
-function layoutGrid() {
-  const grid = $('.jgrid');
-  if (!grid) return;
-  const W = grid.clientWidth;
-  if (!W) return;
-  const gap = parseFloat(getComputedStyle(grid).columnGap) || 14;
-  const target = W < 640 ? 240 : Math.max(200, Math.min(300, W * 0.24));
-  const cards = $$('.card', grid).map((el) => ({ el, r: parseFloat(el.style.getPropertyValue('--r')) || 1.7778 }));
-  const size = (row, h) => row.forEach(({ el, r }) => {
-    const w = Math.max(0, h * r - 0.5);
-    el.style.width = `${w}px`;
-    el.classList.toggle('is-narrow', w < 175);
-  });
-  const heightFor = (row) => (W - gap * (row.length - 1)) / row.reduce((s, x) => s + x.r, 0);
-  let row = [];
-  for (const card of cards) {
-    const next = [...row, card];
-    const hNext = heightFor(next);
-    if (hNext > target) { row = next; continue; }
-    // Row is full: keep the card here or push it to the next row, whichever lands closer to the target height.
-    const hNow = row.length ? heightFor(row) : Infinity;
-    if (row.length && hNow <= target * 1.4 && Math.abs(hNow - target) < Math.abs(hNext - target)) {
-      size(row, hNow);
-      row = [card];
-    } else {
-      size(next, hNext);
-      row = [];
-    }
-  }
-  if (row.length) size(row, Math.min(target, heightFor(row)));
+function setTray(cat) {
+  if (motion.busy || cat === state.cat) return;
+  const sec = $('[data-work]');
+  const swap = () => {
+    const y = scrollY;
+    const inside = !!motion.pinST && y > motion.pinST.start && y < motion.pinST.end;
+    state.cat = cat;
+    buildWork({ before: renderWork });
+    $(`.tray[data-cat="${CSS.escape(cat)}"]`, sec)?.focus({ preventScroll: true });
+    // A swapped line starts from its first print; elsewhere stay put.
+    jumpTo(inside && motion.pinST ? motion.pinST.start : y);
+    const prints = $$('.track .print', sec);
+    if (!MOTION || !prints.length) { motion.busy = false; return; }
+    G.fromTo(prints, { y: -70, opacity: 0, rotation: -3 }, {
+      y: 0, opacity: 1, rotation: 0, duration: 1, stagger: 0.09, ease: 'power3.out',
+      onComplete: () => { motion.busy = false; G.set(prints, { clearProps: 'transform,opacity' }); },
+    });
+  };
+  const old = $$('.track .print', sec);
+  if (!MOTION || !old.length) { swap(); return; }
+  motion.busy = true;
+  G.to(old, { y: -40, opacity: 0, duration: 0.4, stagger: 0.035, ease: 'power2.in', onComplete: swap });
 }
 
-let gridRO;
-function watchGrid() {
-  if (gridRO || !('ResizeObserver' in window)) return;
-  let lastW = 0;
-  gridRO = new ResizeObserver(() => {
-    const w = $('#workBody')?.clientWidth || 0;
-    if (w !== lastW) { lastW = w; layoutGrid(); }
-  });
-  const body = $('#workBody');
-  if (body) gridRO.observe(body);
-}
+/* ---------- experience: multi-track timeline ---------- */
 
-/* ---------- experience ---------- */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const decYear = (v) => {
+  const m = String(v || '').match(/^(\d{4})(?:-(\d{1,2}))?/);
+  return m ? +m[1] + ((m[2] ? Math.min(12, Math.max(1, +m[2])) : 1) - 1) / 12 : null;
+};
+const nowYear = () => { const d = new Date(); return d.getFullYear() + (d.getMonth() + (d.getDate() - 1) / 31) / 12; };
+const monthLabel = (d) => { let y = Math.floor(d + 1e-6); let m = Math.round((d - y) * 12); if (m > 11) { y += 1; m = 0; } return `${MONTHS[m]} ${y}`; };
+function lengthLabel(s, e) {
+  const m = Math.max(1, Math.round((e - s) * 12));
+  const y = Math.floor(m / 12);
+  const r = m % 12;
+  return [y ? plural(y, 'year', 'years') : '', r ? plural(r, 'month', 'months') : ''].filter(Boolean).join(' ');
+}
+const ALT_KIND = /educ|stud|course|school|college|universit|degree|workshop|training|certif/i;
 
 function renderExperience() {
   const body = $('#expBody');
   if (!body) return;
-  const key = (e) => (e.current ? '9999-99' : e.end || e.start || '');
-  const items = [...state.c.experience].filter((e) => e.title).sort((a, b) => key(b).localeCompare(key(a)) || String(b.start).localeCompare(String(a.start)));
-  const kinds = [...new Set(items.map((e) => e.kind).filter(Boolean))];
-  if (!kinds.includes(state.kind)) state.kind = 'all';
-  const shown = state.kind === 'all' ? items : items.filter((e) => e.kind === state.kind);
+  const today = nowYear();
+  const items = state.c.experience.filter((e) => e.title).map((e) => {
+    let s = decYear(e.start);
+    let en = decYear(e.end);
+    if (s == null && en == null) return null;
+    if (s == null) s = en;
+    en = e.current ? Math.max(today, s + 1 / 12) : en != null ? Math.max(en + 1 / 12, s + 1 / 12) : s + 1 / 12;
+    return { e, s, en, kind: String(e.kind || '').trim() || 'Other' };
+  }).filter(Boolean);
+  if (!items.length) { body.innerHTML = '<p class="empty" data-rv>Nothing here yet.</p>'; return; }
+
+  // Tracks in order of first appearance; overlapping entries in one track get their own lane.
+  const tracks = [];
+  for (const it of items) {
+    let t = tracks.find((x) => x.name === it.kind);
+    if (!t) tracks.push((t = { name: it.kind, items: [] }));
+    t.items.push(it);
+  }
+  for (const t of tracks) {
+    const ends = [];
+    for (const it of [...t.items].sort((a, b) => a.s - b.s)) {
+      let lane = ends.findIndex((x) => x <= it.s + 1e-6);
+      if (lane < 0) lane = ends.length;
+      ends[lane] = it.en;
+      it.lane = lane;
+    }
+    t.lanes = Math.max(1, ends.length);
+  }
+  [...items].sort((a, b) => a.s - b.s || a.en - b.en).forEach((it, i) => { it.no = i + 1; });
+
+  const from = Math.floor(Math.min(...items.map((x) => x.s)));
+  const latest = Math.max(today, ...items.map((x) => x.en));
+  const to = Math.max(Math.floor(latest) + 2, from + 3);
+  const span = to - from;
+  const years = Array.from({ length: span }, (_, k) => from + k);
+  const recent = [...items].sort((a, b) => b.en - a.en || b.s - a.s)[0];
+  const order = tracks.flatMap((t) => t.items);
+  const rowOf = (it) => tracks.findIndex((t) => t.items.includes(it));
+
   body.innerHTML = `
-    ${kinds.length > 1 ? `<div class="chips exp-chips"><button class="chip" aria-pressed="${state.kind === 'all'}" data-kind="all">All</button>${kinds.map((k) => `<button class="chip" aria-pressed="${state.kind === k}" data-kind="${esc(k)}">${esc(k)}</button>`).join('')}</div>` : ''}
-    <ol class="timeline">${shown.map((e, i) => `
-      <li class="tl-item rv" style="--d:${i % 4}">
-        <span class="tl-dot"></span>
-        <div class="tl-card">
-          <div class="tl-top">${e.kind ? `<span class="tl-kind">${esc(e.kind)}</span>` : ''}<span class="tl-date">${esc(fmtRange(e.start, e.end, e.current))}</span></div>
-          <h3>${esc(e.title)}</h3>
-          ${e.org || e.location ? `<p class="tl-org">${esc([e.org, e.location].filter(Boolean).join(' · '))}</p>` : ''}
-          ${e.description ? `<div class="prose">${prose(e.description)}</div>` : ''}
-          ${e.link ? `<a class="tl-link" href="${esc(socialHref({ url: e.link }))}" target="_blank" rel="noopener">View <i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : ''}
-        </div>
-      </li>`).join('')}</ol>`;
-  reveal(body);
+    <div class="xv" data-rv>
+      <figure class="xv-print" aria-hidden="true"><span class="xv-tag"></span><span class="xv-ph"></span><span class="xv-dur"></span></figure>
+      <div class="xv-info" aria-live="polite">
+        <h3 class="xv-title"></h3>
+        <dl>
+          <div><dt>Organisation</dt><dd class="xv-org"></dd></div>
+          <div><dt>Track</dt><dd class="xv-trk"></dd></div>
+          <div><dt>Dates</dt><dd class="xv-dates"></dd></div>
+          <div><dt>Length</dt><dd class="xv-len"></dd></div>
+        </dl>
+        <div class="prose xv-desc"></div>
+        <div class="xv-link"></div>
+      </div>
+    </div>
+    <div class="xtl-bar"><span class="xtl-count"></span><button class="xtl-all" type="button" hidden>All tracks</button></div>
+    <div class="xtl-scroll" tabindex="0" role="region" aria-label="Timeline (scrolls sideways)">
+      <div class="xtl" style="--from:${from};--span:${span};--t:${today.toFixed(3)}">
+        <div class="xtl-ruler"><span>Year</span><div class="xtl-years">${years.map((y) => `<span style="--y:${y}">${y}</span>`).join('')}</div></div>
+        ${tracks.map((t, ti) => `<div class="xtl-row" style="--lanes:${t.lanes}">
+          <button class="xtl-name" type="button" aria-pressed="false" title="Show only this track"><small>T${ti + 1}</small>${esc(t.name)}</button>
+          <div class="xtl-lane">${t.items.map((it) => `<button class="xc${ALT_KIND.test(t.name) ? ' alt' : ''}" type="button" data-x="${order.indexOf(it)}" style="--s:${it.s.toFixed(4)};--e:${it.en.toFixed(4)};--ln:${it.lane};--i:${it.no - 1}" aria-label="${esc(`${it.e.title}, ${fmtRange(it.e.start, it.e.end, it.e.current)}`)}"><small>E${pad2(it.no)}</small><span>${esc(it.e.title)}</span></button>`).join('')}</div>
+        </div>`).join('')}
+        <div class="xtl-ov" aria-hidden="true"><i class="xtl-now"><b>Today</b></i><i class="xtl-ph"><b></b></i></div>
+      </div>
+    </div>`;
+
+  const x = $('.xtl', body);
+  const clips = $$('.xc', x);
+  const rows = $$('.xtl-row', x);
+  const all = $('.xtl-all', body);
+  const count = $('.xtl-count', body);
+  const ph = $('.xtl-ph', x);
+  const ov = $('.xtl-ov', x);
+  const set = (sel, v) => { $(sel, body).textContent = v; };
+  let pinned = recent;
+
+  const show = (it) => {
+    const e = it.e;
+    const ti = rowOf(it);
+    clips.forEach((k) => k.classList.toggle('on', +k.dataset.x === order.indexOf(it)));
+    const len = lengthLabel(it.s, Math.min(it.en, e.current ? today : it.en));
+    set('.xv-title', e.title);
+    set('.xv-org', [e.org, e.location].filter(Boolean).join(' · ') || '—');
+    set('.xv-trk', tracks[ti].name);
+    set('.xv-dates', fmtRange(e.start, e.end, e.current) || monthLabel(it.s));
+    set('.xv-len', len);
+    set('.xv-dur', len);
+    set('.xv-tag', `T${ti + 1} · ${tracks[ti].name}`);
+    set('.xv-ph', e.org || e.title);
+    $('.xv-desc', body).innerHTML = prose(e.description);
+    $('.xv-link', body).innerHTML = e.link ? `<a class="btn" href="${esc(socialHref({ url: e.link }))}" target="_blank" rel="noopener">View <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>` : '';
+  };
+  clips.forEach((k) => {
+    const it = order[+k.dataset.x];
+    k.addEventListener('mouseenter', () => show(it));
+    k.addEventListener('focus', () => show(it));
+    k.addEventListener('click', () => { pinned = it; show(it); });
+  });
+  x.addEventListener('mouseleave', () => show(pinned));
+
+  const solo = (row) => {
+    const on = !!row && !row.classList.contains('on');
+    rows.forEach((r) => {
+      r.classList.toggle('on', on && r === row);
+      $('.xtl-name', r).setAttribute('aria-pressed', String(on && r === row));
+    });
+    x.classList.toggle('solo', on);
+    all.hidden = !on;
+    const n = on ? $$('.xc', row).length : clips.length;
+    count.textContent = `${plural(n, 'entry', 'entries')} · ${on ? tracks[rows.indexOf(row)].name : plural(tracks.length, 'track', 'tracks')}`;
+  };
+  rows.forEach((r) => $('.xtl-name', r).addEventListener('click', () => solo(r)));
+  all.addEventListener('click', () => { solo(null); $('.xtl-name', rows[0])?.focus({ preventScroll: true }); });
+
+  // Pointer scrub line with a month readout.
+  x.addEventListener('pointermove', (ev) => {
+    const b = ov.getBoundingClientRect();
+    const p = (ev.clientX - b.left) / b.width;
+    if (p < 0 || p > 1) { ph.style.opacity = '0'; return; }
+    ph.style.opacity = '';
+    ph.style.left = `${p * 100}%`;
+    ph.firstChild.textContent = monthLabel(from + Math.floor(p * span * 12) / 12);
+  });
+
+  solo(null);
+  show(pinned);
+  if (!MOTION || PREVIEW) x.classList.add('dev');
+
+  // On narrow screens the strip scrolls sideways: start with the newest entries in view.
+  const sc = x.parentNode;
+  if (sc.scrollWidth > sc.clientWidth + 2) {
+    const lab = parseFloat(getComputedStyle(x).getPropertyValue('--lab')) || 0;
+    const laneW = x.clientWidth - lab;
+    const end = lab + ((Math.max(recent.en, today) - from) / span) * laneW;
+    sc.scrollLeft = Math.max(0, end - sc.clientWidth + 48);
+  }
 }
 
 /* ---------- project modal ---------- */
@@ -382,12 +551,12 @@ function slideHTML(sl, p) {
       <div class="ba" tabindex="0" role="slider" aria-label="Before and after comparison" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50">
         <div class="ba-layer">${baLayer(sl.after)}</div>
         <div class="ba-layer ba-before">${baLayer(sl.before)}</div>
-        <span class="ba-line"></span><span class="ba-knob"><i class="fa-solid fa-left-right"></i></span>
+        <span class="ba-line"></span><span class="ba-knob"><i class="fa-solid fa-left-right" aria-hidden="true"></i></span>
         <span class="ba-label l">${esc(sl.lb)}</span><span class="ba-label r">${esc(sl.la)}</span>
       </div></div>`;
   }
   if (sl.kind === 'empty') {
-    return `<div class="m-frame" style="--r:${r}"><span class="ph"><i class="${esc(catOf(p.category)?.icon || 'fa-solid fa-star')}"></i></span></div>`;
+    return `<div class="m-frame" style="--r:${r}"><span class="ph"><i class="${esc(catOf(p.category)?.icon || 'fa-solid fa-star')}" aria-hidden="true"></i>Awaiting exposure</span></div>`;
   }
   const m = sl.m;
   const fr = m.type === 'instagram' ? 0.5 : m.type === 'youtube' && m.vertical ? 9 / 16 : r;
@@ -409,7 +578,8 @@ function openProject(id, { push = true } = {}) {
   if (!wasOpen) {
     state.lastFocus = document.activeElement;
     modal.hidden = false;
-    document.documentElement.classList.add('modal-open');
+    root.classList.add('modal-open');
+    motion.lenis?.stop();
     $('.m-close', modal).focus({ preventScroll: true });
   }
   const hash = `#/p/${id}`;
@@ -433,28 +603,28 @@ function renderModal() {
     <div class="m-stage">
       <div class="m-slide">${slideHTML(slides[state.slide], p)}</div>
       ${slides.length > 1 ? `
-        <button class="m-arrow prev" data-slide="-1" aria-label="Previous media"><i class="fa-solid fa-chevron-left"></i></button>
-        <button class="m-arrow next" data-slide="1" aria-label="Next media"><i class="fa-solid fa-chevron-right"></i></button>
-        <div class="m-dots">${slides.map((_, i) => `<button class="m-dot" aria-label="Media ${i + 1}" aria-current="${i === state.slide}" data-goto="${i}"></button>`).join('')}</div>` : ''}
+        <button type="button" class="m-arrow prev" data-slide="-1" aria-label="Previous media"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+        <button type="button" class="m-arrow next" data-slide="1" aria-label="Next media"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+        <div class="m-dots">${slides.map((_, i) => `<button type="button" class="m-dot" aria-label="Media ${i + 1}" aria-current="${i === state.slide}" data-goto="${i}"></button>`).join('')}</div>` : ''}
     </div>
     <div class="m-body">
-      <p class="eyebrow">${cat ? `<i class="${esc(cat.icon)}"></i> ${esc(cat.name)}` : 'Project'}</p>
+      <p class="eyebrow">${cat ? `<i class="${esc(cat.icon)}" aria-hidden="true"></i> ${esc(cat.name)}` : 'Project'}</p>
       <h2 id="mTitle">${esc(p.title)}</h2>
       <div class="m-meta">
-        ${p.role ? `<span><i class="fa-solid fa-user-pen"></i>${esc(p.role)}</span>` : ''}
-        ${p.client ? `<span><i class="fa-solid fa-briefcase"></i>${esc(p.client)}</span>` : ''}
-        ${p.date ? `<span><i class="fa-regular fa-calendar"></i>${esc(fmtMonth(p.date))}</span>` : ''}
+        ${p.role ? `<span><i class="fa-solid fa-user-pen" aria-hidden="true"></i>${esc(p.role)}</span>` : ''}
+        ${p.client ? `<span><i class="fa-solid fa-briefcase" aria-hidden="true"></i>${esc(p.client)}</span>` : ''}
+        ${p.date ? `<span><i class="fa-regular fa-calendar" aria-hidden="true"></i>${esc(fmtMonth(p.date))}</span>` : ''}
       </div>
-      ${p.tools?.length ? `<ul class="pills">${p.tools.map((t) => `<li class="pill pill-soft">${esc(t)}</li>`).join('')}</ul>` : ''}
+      ${p.tools?.length ? `<ul class="pills">${p.tools.map((t) => `<li class="pill">${esc(t)}</li>`).join('')}</ul>` : ''}
       <div class="prose">${prose(p.description || p.summary)}</div>
       <div class="m-actions">
-        ${links.map((l) => `<a class="btn" href="${esc(socialHref({ url: l.url }))}" target="_blank" rel="noopener">${esc(l.label || 'Open link')} <i class="fa-solid fa-arrow-up-right-from-square"></i></a>`).join('')}
-        <button class="btn" data-share><i class="fa-solid fa-share-nodes"></i> Share</button>
+        ${links.map((l) => `<a class="btn" href="${esc(socialHref({ url: l.url }))}" target="_blank" rel="noopener">${esc(l.label || 'Open link')} <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a>`).join('')}
+        <button type="button" class="btn" data-share><i class="fa-solid fa-share-nodes" aria-hidden="true"></i> Share</button>
       </div>
       ${state.list.length > 1 ? `<div class="m-nav">
-        <button class="m-navbtn" data-mnav="-1"><i class="fa-solid fa-arrow-left"></i> Previous</button>
-        <span class="m-count">${String(idx + 1).padStart(2, '0')} / ${String(state.list.length).padStart(2, '0')}</span>
-        <button class="m-navbtn" data-mnav="1">Next <i class="fa-solid fa-arrow-right"></i></button>
+        <button type="button" class="m-navbtn" data-mnav="-1"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Previous</button>
+        <span class="m-count">${pad2(idx + 1)} / ${pad2(state.list.length)}</span>
+        <button type="button" class="m-navbtn" data-mnav="1">Next <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
       </div>` : ''}
     </div>`;
   panel.scrollTop = 0;
@@ -481,7 +651,8 @@ function closeModal() {
   if (modal.hidden) return;
   modal.hidden = true;
   panel.innerHTML = '';
-  document.documentElement.classList.remove('modal-open');
+  root.classList.remove('modal-open');
+  motion.lenis?.start();
   state.project = null;
   state.lastFocus?.focus?.({ preventScroll: true });
 }
@@ -494,8 +665,8 @@ function requestClose() {
   }
 }
 
-function wireBA(root) {
-  for (const ba of $$('.ba', root)) {
+function wireBA(scope) {
+  for (const ba of $$('.ba', scope)) {
     const set = (pct) => {
       pct = Math.max(0, Math.min(100, pct));
       ba.style.setProperty('--pos', `${pct}%`);
@@ -536,7 +707,7 @@ async function share() {
   try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch { prompt('Copy this link', url); }
 }
 
-/* ---------- nav, observers, effects ---------- */
+/* ---------- nav, footer, observers ---------- */
 
 function renderNav(c) {
   const p = c.profile;
@@ -548,19 +719,18 @@ function renderNav(c) {
 
 function renderFooter(c) {
   const p = c.profile;
-  $('#foot').innerHTML = `<div class="wrap">
-    <span>© ${new Date().getFullYear()} ${esc(p.name)}</span>
-    <span class="foot-socials">${socialIcons(c)}</span>
-    <a href="#top" class="foot-top">Back to top <i class="fa-solid fa-arrow-up"></i></a>
-  </div>`;
+  $('#foot').innerHTML = `
+    <div class="foot-name" aria-hidden="true">${esc(p.name)}</div>
+    <div class="foot-note">
+      <span>© ${new Date().getFullYear()} ${esc(p.name)}</span>
+      <span class="foot-socials">${socialIcons(c)}</span>
+      <a href="#top" class="foot-top">Back to top <i class="fa-solid fa-arrow-up" aria-hidden="true"></i></a>
+    </div>`;
 }
 
 function setCurrent(sec) {
-  const cs = getComputedStyle(sec);
-  const a = cs.getPropertyValue('--a').trim();
-  const b = cs.getPropertyValue('--b').trim();
+  const a = getComputedStyle(sec).getPropertyValue('--a').trim();
   if (a) document.body.style.setProperty('--cur-a', a);
-  if (b) document.body.style.setProperty('--cur-b', b);
 }
 
 let sectionIO;
@@ -578,40 +748,225 @@ function observeSections() {
   $$('[data-sec]').forEach((s) => sectionIO.observe(s));
 }
 
-let revealIO;
-function reveal(root = document) {
-  const els = $$('.rv:not(.in)', root);
-  if (PREVIEW || REDUCED || !('IntersectionObserver' in window)) { els.forEach((el) => el.classList.add('in')); return; }
-  revealIO ||= new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); revealIO.unobserve(e.target); }
-  }, { threshold: 0.08, rootMargin: '0px 0px -5% 0px' });
-  els.forEach((el) => revealIO.observe(el));
-}
-
 function startEffects() {
   state.timers.forEach(clearInterval);
   state.timers = [];
-  const rot = $('.rotator');
+  const rot = $('.tagline');
   if (rot && !REDUCED) {
     const tags = JSON.parse(rot.dataset.tags || '[]');
     let i = 0;
     if (tags.length > 1) {
       state.timers.push(setInterval(() => {
         rot.classList.add('out');
-        setTimeout(() => { i = (i + 1) % tags.length; rot.textContent = tags[i]; rot.classList.remove('out'); }, 380);
-      }, 3200));
+        setTimeout(() => { i = (i + 1) % tags.length; rot.textContent = tags[i]; rot.classList.remove('out'); }, 420);
+      }, 3800));
     }
   }
-  const tc = $('#timecode');
-  if (tc && !REDUCED) {
-    const t0 = performance.now();
-    const pad = (n) => String(n).padStart(2, '0');
-    state.timers.push(setInterval(() => {
-      const f = Math.floor(((performance.now() - t0) / 1000) * 25);
-      tc.textContent = `${pad(Math.floor(f / 90000))}:${pad(Math.floor(f / 1500) % 60)}:${pad(Math.floor(f / 25) % 60)}:${pad(f % 25)}`;
-    }, 40));
-  }
 }
+
+/* ---------- motion ---------- */
+
+function initLenis() {
+  if (!MOTION || motion.lenis || !window.Lenis) return;
+  const lenis = new window.Lenis({ lerp: 0.085, smoothWheel: true, wheelMultiplier: 0.95 });
+  lenis.on('scroll', ST.update);
+  G.ticker.add((t) => lenis.raf(t * 1000));
+  G.ticker.lagSmoothing(0);
+  motion.lenis = lenis;
+}
+
+function scrollToTarget(el) {
+  if (motion.lenis) motion.lenis.scrollTo(el || 0, { duration: 1.6 });
+  else if (el) el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth' });
+  else scrollTo({ top: 0, behavior: REDUCED ? 'auto' : 'smooth' });
+}
+
+// Creating a pinned ScrollTrigger measures from the top of the page, so put the reader back where they were.
+function jumpTo(y) {
+  if (Math.abs(scrollY - y) < 1) return;
+  if (motion.lenis) motion.lenis.scrollTo(y, { immediate: true, force: true });
+  else scrollTo(0, y);
+  ST?.update();
+}
+
+function teardownMotion() {
+  if (motion.intro) motion.intro.progress(1);
+  motion.workMM?.revert();
+  motion.workMM = null;
+  motion.work?.revert();
+  motion.work = null;
+  motion.pinST = null;
+  motion.page?.revert();
+  motion.page = null;
+  motion.develop = [];
+  motion.busy = false;
+}
+
+// Scroll-linked pieces outside the work section: develop-on-scroll prints, reveals, safelight breathing.
+function buildPage() {
+  if (!MOTION) return;
+  motion.page = G.context(() => {
+    for (const el of $$('[data-develop]')) {
+      el.style.setProperty('--d', 0);
+      const st = ST.create({ trigger: el, start: 'top 92%', end: 'top 30%', scrub: 0.8, onUpdate: (s) => el.style.setProperty('--d', s.progress.toFixed(3)) });
+      motion.develop.push([el, st]);
+    }
+    for (const el of $$('.spec')) {
+      G.fromTo(el.children, { opacity: 0.08, filter: 'blur(8px)' }, { opacity: 1, filter: 'blur(0px)', ease: 'none', scrollTrigger: { trigger: el, start: 'top 92%', end: 'top 58%', scrub: 1 } });
+    }
+    if (!PREVIEW) {
+      for (const el of $$('[data-rv]')) {
+        G.fromTo(el, { y: 34, opacity: 0 }, { y: 0, opacity: 1, duration: 1.05, ease: 'power4.out', scrollTrigger: { trigger: el, start: 'top 86%', once: true } });
+      }
+      for (const g of $$('[data-rv-group]')) {
+        G.fromTo(g.children, { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.95, ease: 'power4.out', stagger: 0.08, scrollTrigger: { trigger: g, start: 'top 86%', once: true } });
+      }
+      for (const x of $$('.xtl')) ST.create({ trigger: x, start: 'top 82%', once: true, onEnter: () => x.classList.add('dev') });
+    }
+    const sl = $('.safelight');
+    for (const s of $$('[data-glow]')) {
+      const v = parseFloat(s.dataset.glow) || 1;
+      ST.create({ trigger: s, start: 'top 55%', end: 'bottom 55%', onToggle: (self) => { if (self.isActive) G.to(sl, { opacity: v, duration: 1.3, overwrite: true }); } });
+    }
+    const name = $('.hero .name');
+    if (name) G.to(name, { yPercent: -12, ease: 'none', scrollTrigger: { trigger: '.hero-in', start: 'top top', end: 'bottom top', scrub: 1 } });
+  });
+}
+
+// The clothesline: pinned horizontal travel on desktop, a sticky stack on phones. Prints develop as they move.
+function buildWork({ before } = {}) {
+  motion.workMM?.revert();
+  motion.workMM = null;
+  motion.work?.revert();
+  motion.work = null;
+  motion.pinST = null;
+  before?.();
+  const sec = $('[data-work]');
+  if (!sec || !MOTION || !$('.track .print', sec)) { if (MOTION) ST.refresh(); return; }
+  const track = $('.track', sec);
+  const prints = $$('.print', track);
+
+  motion.work = G.context(() => {
+    if (innerWidth > 800) {
+      for (const p of prints) {
+        const r = parseFloat(p.style.getPropertyValue('--rot')) || 0;
+        G.fromTo($('.swing', p), { rotation: r - 1.4 }, { rotation: r + 1.4, duration: 3 + Math.random() * 1.8, ease: 'sine.inOut', repeat: -1, yoyo: true, delay: -Math.random() * 4 });
+      }
+    }
+  });
+
+  const mm = G.matchMedia();
+  motion.workMM = mm;
+  mm.add('(min-width: 801px)', () => {
+    sec.classList.add('is-pinned');
+    const path = $('.cord path', track);
+    const svg = $('.cord', track);
+    const end = () => { const e = $('.endcard', track) || track.lastElementChild; return e.offsetLeft + e.offsetWidth + innerWidth * 0.24; };
+    // Print height = what is left of the viewport under the trays.
+    const size = () => {
+      const free = innerHeight - track.offsetTop - 104 - 40 - 92;
+      track.style.setProperty('--ph', `${Math.round(Math.max(150, Math.min(480, free)))}px`);
+    };
+    const cord = () => {
+      const w = end();
+      svg.setAttribute('width', w);
+      svg.setAttribute('height', 46);
+      svg.setAttribute('viewBox', `0 0 ${w} 46`);
+      const xs = [-40, ...prints.map((p) => p.offsetLeft + p.offsetWidth / 2), w + 40];
+      let d = `M${xs[0]},14`;
+      for (let i = 1; i < xs.length; i++) d += ` Q${(xs[i - 1] + xs[i]) / 2},${i === 1 || i === xs.length - 1 ? 20 : 34} ${xs[i]},14`;
+      path.setAttribute('d', d);
+    };
+    const develop = () => {
+      const vw = innerWidth;
+      for (const p of prints) {
+        const r = p.getBoundingClientRect();
+        p.style.setProperty('--d', G.utils.clamp(0, 1, (0.9 * vw - (r.left + r.width / 2)) / (0.46 * vw)).toFixed(3));
+      }
+    };
+    size();
+    ST.addEventListener('refreshInit', size);
+    const dist = () => Math.max(end() - innerWidth, 500);
+    const tw = G.to(track, {
+      x: () => -dist(), ease: 'none', onUpdate: develop,
+      scrollTrigger: { trigger: sec, start: 'top top', end: () => `+=${dist()}`, pin: true, scrub: 1, anticipatePin: 1, invalidateOnRefresh: true, refreshPriority: 1, onRefresh: () => { cord(); develop(); } },
+    });
+    motion.pinST = tw.scrollTrigger;
+    cord();
+    develop();
+    return () => {
+      ST.removeEventListener('refreshInit', size);
+      sec.classList.remove('is-pinned');
+      track.style.removeProperty('--ph');
+      G.set(track, { clearProps: 'transform' });
+      prints.forEach((p) => p.style.removeProperty('--d'));
+      path.setAttribute('d', '');
+      motion.pinST = null;
+    };
+  });
+  mm.add('(max-width: 800px)', () => {
+    for (const p of prints) {
+      p.style.setProperty('--d', 0);
+      ST.create({ trigger: p, start: 'top 96%', end: 'top 42%', scrub: 0.6, onUpdate: (s) => p.style.setProperty('--d', s.progress.toFixed(3)) });
+    }
+    return () => prints.forEach((p) => p.style.removeProperty('--d'));
+  });
+  ST.sort();
+  ST.refresh();
+}
+
+function syncDevelop() {
+  for (const [el, st] of motion.develop) el.style.setProperty('--d', st.progress.toFixed(3));
+}
+
+// Enlarger countdown 3-2-1, then the name develops. Once per visit, skippable by any input.
+function intro() {
+  if (motion.introDone) return;
+  motion.introDone = true;
+  const hero = $('.hero');
+  if (!hero || app.firstElementChild !== hero || location.hash || FOCUS || scrollY > 40) return;
+  root.classList.add('intro');
+  motion.lenis?.stop();
+  scrollTo(0, 0);
+  const nums = $$('.cd-n', hero);
+  const label = $('.cd-label', hero);
+  const glow = $('.safelight');
+  const parts = $$('.role, .tagline, .hero-acts, .tag, .cue', hero);
+  const evs = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
+  const skip = () => tl.progress(1);
+  const finish = () => {
+    evs.forEach((ev) => removeEventListener(ev, skip));
+    root.classList.remove('intro');
+    G.set([...$$('.nl > span', hero), ...parts, '.nav', glow], { clearProps: 'filter,transform,opacity' });
+    motion.intro = null;
+    motion.lenis?.start();
+    ST.refresh();
+  };
+  const tl = G.timeline({ onComplete: finish });
+  nums.forEach((n, i) => {
+    tl.fromTo(n, { opacity: 0, scale: 1.05, filter: 'blur(10px)' }, { opacity: 1, scale: 1, filter: 'blur(0px)', duration: 0.28, ease: 'power2.out' }, i * 0.9 + 0.2)
+      .to(n, { opacity: 0, duration: 0.35, ease: 'power1.in' }, i * 0.9 + 0.72)
+      .fromTo(glow, { opacity: 1 }, { opacity: 0.55, duration: 0.12, yoyo: true, repeat: 1 }, i * 0.9 + 0.2);
+  });
+  tl.call(() => { label.textContent = 'Developing…'; }, null, 2.75)
+    .fromTo($$('.nl > span', hero), { opacity: 0, yPercent: 10, filter: 'blur(18px) brightness(2.4) contrast(.4)' }, { opacity: 1, yPercent: 0, filter: 'blur(0px) brightness(1) contrast(1)', duration: 2.3, stagger: 0.4, ease: 'power2.out' }, 2.9)
+    .to(label, { opacity: 0, duration: 0.6 }, 4.4)
+    .fromTo(parts, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 1, stagger: 0.14, ease: 'power3.out' }, 4.6)
+    .fromTo('.nav', { opacity: 0 }, { opacity: 1, duration: 1 }, 5);
+  motion.intro = tl;
+  evs.forEach((ev) => addEventListener(ev, skip, { once: true, passive: true }));
+}
+
+function buildMotion() {
+  if (!MOTION) return;
+  initLenis();
+  buildPage();
+  buildWork();
+  syncDevelop();
+  intro();
+}
+
+/* ---------- global wiring ---------- */
 
 function wireGlobal() {
   const nav = $('#nav');
@@ -620,28 +975,17 @@ function wireGlobal() {
     nav.classList.toggle('open', open);
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
-    document.documentElement.classList.toggle('menu-open', open);
+    root.classList.toggle('menu-open', open);
   };
   toggle.addEventListener('click', () => setMenu(!nav.classList.contains('open')));
-
-  const onScroll = () => nav.classList.toggle('scrolled', scrollY > 24);
-  addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
 
   // Refit the name when the window changes size or the display font finishes loading.
   let fitRaf = 0;
   addEventListener('resize', () => { cancelAnimationFrame(fitRaf); fitRaf = requestAnimationFrame(fitName); });
-  document.fonts?.addEventListener?.('loadingdone', fitName);
-  document.fonts?.ready.then(fitName);
-
-  if (matchMedia('(pointer: fine)').matches && !REDUCED) {
-    const glow = $('.cursor-glow');
-    let raf = 0;
-    addEventListener('pointermove', (e) => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => { glow.style.setProperty('--mx', `${e.clientX}px`); glow.style.setProperty('--my', `${e.clientY}px`); });
-    }, { passive: true });
-  }
+  const refit = () => { fitName(); ST?.refresh(); };
+  document.fonts?.addEventListener?.('loadingdone', refit);
+  document.fonts?.ready.then(refit);
+  addEventListener('load', () => ST?.refresh());
 
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { requestClose(); return; }
@@ -649,10 +993,14 @@ function wireGlobal() {
     if (!t) return;
     if (t.closest('#navLinks') || t.classList.contains('brand')) setMenu(false);
     if (t.dataset.track) trackClick(t.dataset.track);
+    const href = t.tagName === 'A' ? t.getAttribute('href') || '' : '';
+    if (href.startsWith('#') && !href.startsWith('#/')) {
+      const target = href.length > 1 && href !== '#top' ? document.getElementById(decodeURIComponent(href.slice(1))) : null;
+      if (target || href === '#top' || href === '#') { e.preventDefault(); scrollToTarget(target); }
+      return;
+    }
     if (t.dataset.open) { openProject(t.dataset.open); return; }
-    if (t.dataset.cat) { state.cat = t.dataset.cat; state.orient = 'all'; renderWork(); return; }
-    if (t.dataset.orient) { state.orient = t.dataset.orient; renderWork(); return; }
-    if (t.dataset.kind) { state.kind = t.dataset.kind; renderExperience(); return; }
+    if (t.classList.contains('tray') && t.dataset.cat) { setTray(t.dataset.cat); return; }
     if (t.dataset.play != null) {
       const m = parse(t.dataset.play);
       if (m) t.outerHTML = playerHTML(m, { autoplay: true });
@@ -663,7 +1011,7 @@ function wireGlobal() {
       v.muted = !v.muted;
       v.controls = !v.muted;
       if (!v.muted) { v.currentTime = 0; v.play(); }
-      t.innerHTML = `<i class="fa-solid ${v.muted ? 'fa-volume-xmark' : 'fa-volume-high'}"></i>`;
+      t.innerHTML = `<i class="fa-solid ${v.muted ? 'fa-volume-xmark' : 'fa-volume-high'}" aria-hidden="true"></i>`;
       t.setAttribute('aria-label', v.muted ? 'Turn sound on' : 'Mute');
       return;
     }
@@ -678,7 +1026,7 @@ function wireGlobal() {
       if (!modal.hidden) requestClose();
       else if (nav.classList.contains('open')) setMenu(false);
     }
-    if (!modal.hidden && !e.target.closest('input, textarea, .ba')) {
+    if (!modal.hidden && !e.target.closest?.('input, textarea, .ba')) {
       if (e.key === 'ArrowRight') stepProject(1);
       if (e.key === 'ArrowLeft') stepProject(-1);
     }
@@ -721,24 +1069,18 @@ function render(c) {
   applyTheme(c.theme);
   document.title = c.seo?.title || `${c.profile.name} | Portfolio`;
   $('meta[name="description"]')?.setAttribute('content', c.seo?.description || '');
+  const keepY = scrollY;
+  teardownMotion();
   renderNav(c);
-  let n = 0;
-  app.innerHTML = visibleSections(c).map((s) => {
-    const fn = RENDER[s.type];
-    if (!fn) return '';
-    if (s.type !== 'hero') n += 1;
-    return fn(s, c, n);
-  }).join('');
+  app.innerHTML = visibleSections(c).map((s) => RENDER[s.type]?.(s, c) || '').join('');
   renderWork();
-  gridRO?.disconnect();
-  gridRO = null;
-  watchGrid();
   renderExperience();
   renderFooter(c);
   fitName();
-  reveal(app);
   observeSections();
   startEffects();
+  buildMotion();
+  if (!motion.intro) jumpTo(keepY);
   if (state.project) {
     const p = published(c).find((x) => x.id === state.project.id);
     if (p) { state.project = p; renderModal(); } else requestClose();
@@ -754,7 +1096,11 @@ async function boot() {
     render(normalize(c, defaults));
     if (first) {
       first = false;
-      if (FOCUS && $('#workBody')) $('#workBody').closest('[data-sec]').scrollIntoView({ behavior: 'instant' });
+      const work = $('[data-work]');
+      if (FOCUS && work) {
+        if (motion.lenis) motion.lenis.scrollTo(work, { immediate: true, force: true });
+        else work.scrollIntoView({ behavior: 'instant' });
+      }
       route();
       if (!PREVIEW) trackVisit();
     }
