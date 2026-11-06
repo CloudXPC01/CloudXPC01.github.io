@@ -38,6 +38,18 @@
 
   <footer class="foot" id="foot"></footer>
 
+  <div class="archive" id="archive" data-lenis-prevent role="dialog" aria-modal="true" aria-labelledby="archiveH" hidden>
+    <div class="archive-in">
+      <div class="archive-head">
+        <div><h2 id="archiveH">All works</h2><p class="archive-count" id="archiveCount"></p></div>
+        <button class="btn archive-close" type="button" data-archive-close>Back to selection <i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        <div class="trays" id="trays" role="group" aria-label="Filter work by category" hidden></div>
+        <p class="line-note" id="lineNote" aria-live="polite"></p>
+      </div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+
   <div class="modal" id="modal" data-lenis-prevent hidden>
     <div class="modal-backdrop" data-close></div>
     <button class="m-close" type="button" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button>

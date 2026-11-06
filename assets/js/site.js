@@ -49,7 +49,15 @@ const panel = $('#modalPanel');
 
 const published = (c) => c.projects.filter((p) => p.published !== false && p.title);
 const catOf = (id) => state.c.categories.find((x) => x.id === id);
-const visibleSections = (c) => c.sections.filter((s) => s.visible !== false);
+// Fixed page order: hero, featured work, experience, about, contact. Text sections stay after the block they follow in admin.
+const ORDER = { hero: 0, work: 1, experience: 2, about: 3, contact: 4 };
+const visibleSections = (c) => {
+  let last = -1;
+  return c.sections.filter((s) => s.visible !== false)
+    .map((s, i) => { const r = ORDER[s.type] ?? last + 0.5; if (s.type in ORDER) last = ORDER[s.type]; return { s, r, i }; })
+    .sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.s);
+};
+const FEATURED = 6;
 const pad2 = (n) => String(n).padStart(2, '0');
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -187,12 +195,12 @@ function fitName() {
   if (avail && widest > avail) h.style.fontSize = `${parseFloat(getComputedStyle(h).fontSize) * (avail / widest) * 0.97}px`;
 }
 
-function workSection(s) {
+function workSection(s, c) {
+  const n = published(c).length;
   return `<section class="sec-work" id="${esc(s.id)}" data-sec data-work data-glow=".55" style="${pairVars(s.colors)}" aria-labelledby="${esc(s.id)}-h">
     <div class="work-head">
       <div class="work-title" data-rv><h2 id="${esc(s.id)}-h">${esc(s.title)}</h2>${s.intro ? `<p class="work-intro">${esc(s.intro)}</p>` : ''}</div>
-      <div class="trays" id="trays" role="group" aria-label="Filter work by category" hidden></div>
-      <p class="line-note" id="lineNote" aria-live="polite"></p>
+      ${n > FEATURED ? `<button type="button" class="btn btn-primary see-all" data-all data-rv>See all ${n} works <i class="fa-solid fa-grip" aria-hidden="true"></i></button>` : ''}
     </div>
     <div class="track" id="track"></div>
   </section>`;
@@ -303,9 +311,35 @@ function printCard(p, i) {
   </article>`;
 }
 
+// The clothesline holds the featured selection only (featured first, topped up in admin order).
 function renderWork() {
   const sec = $('[data-work]');
   if (!sec) return;
+  const c = state.c;
+  const all = published(c);
+  const items = sortProjects(all).slice(0, FEATURED);
+  state.featured = items;
+  state.list = items;
+  const more = all.length > items.length;
+  const contact = visibleSections(c).find((x) => x.type === 'contact');
+  $('#track', sec).innerHTML = items.length
+    ? `<svg class="cord" aria-hidden="true"><path fill="none" stroke-width="2" stroke-linecap="round"/></svg>
+      ${items.map(printCard).join('')}
+      <div class="endcard"><h3>${more ? 'Want more?' : 'End of the line'}</h3><p>${more ? `${items.length} picks from ${plural(all.length, 'work', 'works')} in edits, VFX, 3D, design and games.` : `${plural(items.length, 'work', 'works')} on the line.`}</p>
+        <div class="endcard-acts">${more ? `<button type="button" class="btn btn-primary" data-all>See all ${all.length} works <i class="fa-solid fa-grip" aria-hidden="true"></i></button>` : ''}
+        ${contact ? `<a class="btn" href="#${esc(contact.id)}">${esc(contact.nav || contact.title)} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>` : ''}</div></div>`
+    : '<p class="empty">Nothing here yet.</p>';
+
+  const own = c.sections.find((x) => x.id === sec.id)?.colors;
+  if (own?.a) { sec.style.setProperty('--a', own.a); sec.style.setProperty('--b', own.b); }
+  if (sec.classList.contains('is-current')) setCurrent(sec);
+}
+
+/* ---------- all works: full grid with category filters ---------- */
+
+const archive = $('#archive');
+
+function renderArchive() {
   const c = state.c;
   const all = published(c);
   let cats = c.categories.filter((cat) => all.some((p) => p.category === cat.id));
@@ -313,53 +347,72 @@ function renderWork() {
   if (state.cat !== 'all' && !cats.some((x) => x.id === state.cat)) state.cat = 'all';
   const cur = cats.find((x) => x.id === state.cat);
   const items = sortProjects(state.cat === 'all' ? all : all.filter((p) => p.category === state.cat));
-  state.list = items;
+  state.archiveList = items;
 
   const tray = (id, label, n, colors) =>
-    `<button type="button" class="tray" data-cat="${esc(id)}" aria-pressed="${state.cat === id}" style="${pairVars(colors)}"><b>${esc(label)}</b><span>${plural(n, 'print', 'prints')}</span></button>`;
-  const trays = $('#trays', sec);
+    `<button type="button" class="tray" data-cat="${esc(id)}" aria-pressed="${state.cat === id}" style="${pairVars(colors)}"><b>${esc(label)}</b><span>${plural(n, 'work', 'works')}</span></button>`;
+  const trays = $('#trays', archive);
   trays.hidden = cats.length < 2;
   trays.innerHTML = cats.length > 1 ? tray('all', 'All', all.length) + cats.map((x) => tray(x.id, x.name, all.filter((p) => p.category === x.id).length, x.colors)).join('') : '';
-  $('#lineNote', sec).textContent = cur?.blurb || '';
+  $('#lineNote', archive).textContent = cur?.blurb || '';
+  $('#archiveCount', archive).textContent = plural(all.length, 'work', 'works');
+  $('#grid', archive).innerHTML = items.length ? items.map(printCard).join('') : '<p class="empty">Nothing here yet.</p>';
+  const pair = cur?.colors?.a ? cur.colors : null;
+  if (pair) { archive.style.setProperty('--a', pair.a); archive.style.setProperty('--b', pair.b); }
+  else { archive.style.removeProperty('--a'); archive.style.removeProperty('--b'); }
+}
 
-  const contact = visibleSections(c).find((x) => x.type === 'contact');
-  $('#track', sec).innerHTML = items.length
-    ? `<svg class="cord" aria-hidden="true"><path fill="none" stroke-width="2" stroke-linecap="round"/></svg>
-      ${items.map(printCard).join('')}
-      <div class="endcard"><h3>End of the line</h3><p>${plural(items.length, 'print', 'prints')} ${cur ? `in ${esc(cur.name)}` : 'on the line'}.</p>
-        ${contact ? `<a class="btn" href="#${esc(contact.id)}">${esc(contact.nav || contact.title)} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>` : ''}</div>`
-    : '<p class="empty">Nothing here yet.</p>';
+function openArchive({ push = true } = {}) {
+  if (!state.c) return;
+  renderArchive();
+  if (archive.hidden) {
+    state.archiveFocus = document.activeElement;
+    archive.hidden = false;
+    archive.scrollTop = 0;
+    root.classList.add('archive-open');
+    motion.lenis?.stop();
+    $('.archive-close', archive).focus({ preventScroll: true });
+    if (MOTION) G.fromTo($$('#grid .print', archive), { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.8, stagger: 0.04, clearProps: 'transform,opacity' });
+  }
+  if (location.hash !== '#/all') {
+    if (push) history.pushState({ pfArchive: 1 }, '', '#/all');
+    else history.replaceState(history.state, '', '#/all');
+  }
+}
 
-  // The work section takes the selected category's colours (if it has its own pair).
-  const own = c.sections.find((x) => x.id === sec.id)?.colors;
-  const pair = cur?.colors?.a ? cur.colors : own?.a ? own : null;
-  if (pair) { sec.style.setProperty('--a', pair.a); sec.style.setProperty('--b', pair.b); }
-  else { sec.style.removeProperty('--a'); sec.style.removeProperty('--b'); }
-  if (sec.classList.contains('is-current')) setCurrent(sec);
+function closeArchive() {
+  if (archive.hidden) return;
+  archive.hidden = true;
+  root.classList.remove('archive-open');
+  if (modal.hidden) motion.lenis?.start();
+  state.archiveFocus?.focus?.({ preventScroll: true });
+}
+
+function requestCloseArchive() {
+  if (history.state?.pfArchive) history.back();
+  else {
+    history.replaceState(null, '', location.pathname + location.search);
+    closeArchive();
+  }
 }
 
 function setTray(cat) {
   if (motion.busy || cat === state.cat) return;
-  const sec = $('[data-work]');
   const swap = () => {
-    const y = scrollY;
-    const inside = !!motion.pinST && y > motion.pinST.start && y < motion.pinST.end;
     state.cat = cat;
-    buildWork({ before: renderWork });
-    $(`.tray[data-cat="${CSS.escape(cat)}"]`, sec)?.focus({ preventScroll: true });
-    // A swapped line starts from its first print; elsewhere stay put.
-    jumpTo(inside && motion.pinST ? motion.pinST.start : y);
-    const prints = $$('.track .print', sec);
+    renderArchive();
+    $(`.tray[data-cat="${CSS.escape(cat)}"]`, archive)?.focus({ preventScroll: true });
+    const prints = $$('#grid .print', archive);
     if (!MOTION || !prints.length) { motion.busy = false; return; }
-    G.fromTo(prints, { y: -70, opacity: 0, rotation: -3 }, {
-      y: 0, opacity: 1, rotation: 0, duration: 1, stagger: 0.09, ease: 'power3.out',
+    G.fromTo(prints, { y: -40, opacity: 0 }, {
+      y: 0, opacity: 1, duration: 0.7, stagger: 0.05, ease: 'power3.out',
       onComplete: () => { motion.busy = false; G.set(prints, { clearProps: 'transform,opacity' }); },
     });
   };
-  const old = $$('.track .print', sec);
+  const old = $$('#grid .print', archive);
   if (!MOTION || !old.length) { swap(); return; }
   motion.busy = true;
-  G.to(old, { y: -40, opacity: 0, duration: 0.4, stagger: 0.035, ease: 'power2.in', onComplete: swap });
+  G.to(old, { y: -24, opacity: 0, duration: 0.3, stagger: 0.015, ease: 'power2.in', onComplete: swap });
 }
 
 /* ---------- experience: multi-track timeline ---------- */
@@ -567,9 +620,10 @@ function slideHTML(sl, p) {
   return `<div class="m-frame" style="--r:${fr}">${inner}</div>${sl.caption ? `<p class="m-cap">${esc(sl.caption)}</p>` : ''}`;
 }
 
-function openProject(id, { push = true } = {}) {
+function openProject(id, { push = true, list = null } = {}) {
   const p = published(state.c).find((x) => x.id === id);
   if (!p) return;
+  if (list) state.list = list;
   if (!state.list.some((x) => x.id === id)) state.list = sortProjects(published(state.c));
   const wasOpen = !modal.hidden;
   state.project = p;
@@ -652,7 +706,7 @@ function closeModal() {
   modal.hidden = true;
   panel.innerHTML = '';
   root.classList.remove('modal-open');
-  motion.lenis?.start();
+  if (archive.hidden) motion.lenis?.start();
   state.project = null;
   state.lastFocus?.focus?.({ preventScroll: true });
 }
@@ -978,6 +1032,9 @@ function wireGlobal() {
     root.classList.toggle('menu-open', open);
   };
   toggle.addEventListener('click', () => setMenu(!nav.classList.contains('open')));
+  const solid = () => nav.classList.toggle('is-solid', scrollY > 80);
+  addEventListener('scroll', solid, { passive: true });
+  solid();
 
   // Refit the name when the window changes size or the display font finishes loading.
   let fitRaf = 0;
@@ -999,7 +1056,9 @@ function wireGlobal() {
       if (target || href === '#top' || href === '#') { e.preventDefault(); scrollToTarget(target); }
       return;
     }
-    if (t.dataset.open) { openProject(t.dataset.open); return; }
+    if (t.dataset.open) { openProject(t.dataset.open, { list: t.closest('#archive') ? state.archiveList : state.featured }); return; }
+    if (t.hasAttribute('data-all')) { openArchive(); return; }
+    if (t.hasAttribute('data-archive-close')) { requestCloseArchive(); return; }
     if (t.classList.contains('tray') && t.dataset.cat) { setTray(t.dataset.cat); return; }
     if (t.dataset.play != null) {
       const m = parse(t.dataset.play);
@@ -1024,6 +1083,7 @@ function wireGlobal() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (!modal.hidden) requestClose();
+      else if (!archive.hidden) requestCloseArchive();
       else if (nav.classList.contains('open')) setMenu(false);
     }
     if (!modal.hidden && !e.target.closest?.('input, textarea, .ba')) {
@@ -1060,6 +1120,8 @@ function route() {
   if (m) {
     if (state.project?.id !== m[1]) openProject(m[1], { push: false });
   } else closeModal();
+  if (location.hash === '#/all') openArchive({ push: false });
+  else if (!m) closeArchive();
 }
 
 /* ---------- boot ---------- */
@@ -1075,6 +1137,7 @@ function render(c) {
   app.innerHTML = visibleSections(c).map((s) => RENDER[s.type]?.(s, c) || '').join('');
   renderWork();
   renderExperience();
+  if (!archive.hidden) renderArchive();
   renderFooter(c);
   fitName();
   observeSections();
@@ -1096,12 +1159,9 @@ async function boot() {
     render(normalize(c, defaults));
     if (first) {
       first = false;
-      const work = $('[data-work]');
-      if (FOCUS && work) {
-        if (motion.lenis) motion.lenis.scrollTo(work, { immediate: true, force: true });
-        else work.scrollIntoView({ behavior: 'instant' });
-      }
       route();
+      // ?focus=<category> links (used in applications) open the full grid on that category.
+      if (FOCUS && !location.hash) openArchive({ push: false });
       if (!PREVIEW) trackVisit();
     }
   };

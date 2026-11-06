@@ -47,8 +47,8 @@
   "sections": [
     { "id": "hero", "type": "hero", "nav": "Home", "title": "Home", "visible": true, "colors": null },
     { "id": "work", "type": "work", "nav": "Work", "title": "Selected work", "intro": "VFX shots, edits, posters, 3D and games. Pick a category, tap anything to open it.", "visible": true, "colors": null },
-    { "id": "about", "type": "about", "nav": "About", "title": "About me", "visible": true, "colors": null },
     { "id": "experience", "type": "experience", "nav": "Experience", "title": "Experience", "intro": "Work, volunteering and everything in between.", "visible": true, "colors": null },
+    { "id": "about", "type": "about", "nav": "About", "title": "About me", "visible": true, "colors": null },
     { "id": "contact", "type": "contact", "nav": "Contact", "title": "Let's make something", "intro": "Internships, freelance edits or collabs. My inbox is open.", "visible": true, "colors": null }
   ],
   "categories": [
